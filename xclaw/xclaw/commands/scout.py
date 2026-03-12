@@ -464,7 +464,6 @@ def _extract_chrome_cookies_decrypted(db_path: str, domain: str) -> dict:
     import sqlite3
     import subprocess
     import hashlib
-    from base64 import b64decode
 
     # Get Chrome's encryption key from Keychain
     proc = subprocess.run(
@@ -472,13 +471,18 @@ def _extract_chrome_cookies_decrypted(db_path: str, domain: str) -> dict:
         capture_output=True, text=True
     )
     if proc.returncode != 0:
-        raise RuntimeError("Cannot access Chrome Keychain. Grant Terminal access in System Preferences > Privacy > Full Disk Access")
+        raise RuntimeError(
+            "Cannot access Chrome Keychain. Grant Terminal access in "
+            "System Preferences > Privacy > Full Disk Access"
+        )
 
     key_password = proc.stdout.strip()
+    key = hashlib.pbkdf2_hmac(
+        "sha1", key_password.encode("utf-8"), b"saltysalt", 1003, dklen=16
+    )
 
-    # Derive the actual key
-    import struct
-    key = hashlib.pbkdf2_hmac("sha1", key_password.encode("utf-8"), b"saltysalt", 1003, dklen=16)
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.backends import default_backend
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -490,18 +494,35 @@ def _extract_chrome_cookies_decrypted(db_path: str, domain: str) -> dict:
     cookies = {}
     for name, encrypted_value in cursor.fetchall():
         if encrypted_value[:3] == b"v10":
-            # AES-CBC decryption
             try:
-                from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-                from cryptography.hazmat.backends import default_backend
-
                 iv = b" " * 16
-                cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+                cipher = Cipher(
+                    algorithms.AES(key), modes.CBC(iv), backend=default_backend()
+                )
                 decryptor = cipher.decryptor()
                 decrypted = decryptor.update(encrypted_value[3:]) + decryptor.finalize()
                 # Remove PKCS7 padding
                 padding_len = decrypted[-1]
-                cookies[name] = decrypted[:-padding_len].decode("utf-8")
+                if 1 <= padding_len <= 16:
+                    decrypted = decrypted[:-padding_len]
+
+                # First AES block (16 bytes) is garbled on macOS Chrome;
+                # real cookie value starts from byte 16
+                if len(decrypted) > 16:
+                    candidate = decrypted[16:]
+                    try:
+                        value = candidate.decode("utf-8")
+                        cookies[name] = value
+                        continue
+                    except UnicodeDecodeError:
+                        pass
+
+                # Fallback: extract longest printable ASCII run
+                import re
+                raw = decrypted.decode("latin-1")
+                matches = re.findall(r"[\x20-\x7e]{2,}", raw)
+                if matches:
+                    cookies[name] = max(matches, key=len)
             except Exception:
                 continue
         elif encrypted_value:

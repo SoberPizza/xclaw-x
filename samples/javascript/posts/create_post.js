@@ -1,0 +1,105 @@
+/**
+ * Create Post - X API v2
+ * 
+ * Endpoint: POST https://api.x.com/2/posts
+ * Docs: https://developer.x.com/en/docs/twitter-api/tweets/manage-tweets/api-reference/post-tweets
+ * 
+ * Authentication: OAuth 2.0 (User Context)
+ * Required env vars: CLIENT_ID, CLIENT_SECRET
+ */
+
+const { 
+  Client, 
+  OAuth2,
+  generateCodeVerifier,
+  generateCodeChallenge
+} = require('@xdevplatform/xdk');
+
+const readline = require('readline').createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const clientId = process.env.CLIENT_ID;
+const clientSecret = process.env.CLIENT_SECRET;
+
+// The text content of the post. You can also add parameters for polls,
+// quote posts, reply settings, and more.
+const data = {
+  text: "Hello world!"
+};
+
+async function input(prompt) {
+  return new Promise((resolve) => {
+    readline.question(prompt, (out) => {
+      readline.close();
+      resolve(out);
+    });
+  });
+}
+
+// Helper function to parse callback URL
+const getQueryStringParams = (query) => {
+  return query
+    ? (/^[?#]/.test(query) ? query.slice(1) : query)
+        .split(/[\?\&]/)
+        .reduce((params, param) => {
+          let [key, value] = param.split("=");
+          params[key] = value
+            ? decodeURIComponent(value.replace(/\+/g, " "))
+            : "";
+          return params;
+        }, {})
+    : {};
+};
+
+(async () => {
+  try {
+    // Configure OAuth 2.0
+    const oauth2Config = {
+      clientId: clientId,
+      clientSecret: clientSecret,
+      redirectUri: 'https://example.com',
+      scope: ['tweet.read', 'users.read', 'tweet.write', 'offline.access']
+    };
+
+    const oauth2 = new OAuth2(oauth2Config);
+
+    // Generate PKCE parameters
+    const state = 'example-state';
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    
+    oauth2.setPkceParameters(codeVerifier, codeChallenge);
+    
+    // Get authorization URL
+    const authUrl = await oauth2.getAuthorizationUrl(state);
+    console.log('Please go here and authorize:', authUrl);
+
+    // Input callback URL from terminal
+    const redirectCallback = await input('Paste the redirected callback URL here: ');
+
+    // Parse callback
+    const { state: returnedState, code } = getQueryStringParams(redirectCallback);
+    if (returnedState !== state) {
+      console.log("State doesn't match");
+      process.exit(-1);
+    }
+
+    // Exchange code for tokens
+    const tokens = await oauth2.exchangeCode(code, codeVerifier);
+
+    // Create client with access token
+    const client = new Client({
+      accessToken: tokens.access_token
+    });
+
+    // Make the request using SDK
+    const response = await client.posts.create(data);
+    console.dir(response, { depth: null });
+  } catch (e) {
+    console.log(e);
+    process.exit(-1);
+  }
+  process.exit();
+})();

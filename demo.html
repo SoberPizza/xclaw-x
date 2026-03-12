@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>X-Claw — Demo Transitions</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@300;500;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d0a14;
+    color: #fff;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .global-glow {
+    position: fixed;
+    top: -30%; left: -10%;
+    width: 120%; height: 120%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(168,85,247,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 80%, rgba(59,130,246,0.04) 0%, transparent 60%);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .scanline {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 3px,
+      rgba(168,85,247,0.006) 3px, rgba(168,85,247,0.006) 6px
+    );
+    pointer-events: none;
+    z-index: 200;
+  }
+
+  /* 粒子 */
+  .particles {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1; pointer-events: none;
+  }
+  .particle {
+    position: absolute;
+    width: 2px; height: 2px;
+    border-radius: 50%;
+    opacity: 0;
+    animation: particleFloat 4s ease-in-out infinite;
+  }
+  @keyframes particleFloat {
+    0%   { opacity: 0; transform: translateY(0); }
+    50%  { opacity: 0.4; }
+    100% { opacity: 0; transform: translateY(-90px); }
+  }
+
+  /* 闪光 */
+  .flash {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(168,85,247,0.05);
+    z-index: 150;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .flash.fire { animation: flashFire 0.3s ease-out forwards; }
+  @keyframes flashFire { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ===== 页面 ===== */
+  .page {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* 序号 */
+  .demo-number {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7rem;
+    font-weight: 800;
+    line-height: 1;
+    background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(59,130,246,0.1));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    opacity: 0;
+    transform: scale(0.5);
+    display: none;
+  }
+
+  /* 图标 */
+  .demo-icon {
+    font-size: 3.4rem;
+    margin: 0 0 18px;
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  /* 标题 */
+  .demo-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  .demo-title .grad {
+    background: linear-gradient(90deg, #a855f7, #3b82f6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 描述 */
+  .demo-desc {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.2rem;
+    color: rgba(188,188,212,0.45);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 18px;
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  .demo-desc a {
+    color: #a78bfa;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(167,139,250,0.45);
+  }
+  .demo-desc a:hover {
+    color: #c4b5fd;
+    border-bottom-color: rgba(196,181,253,0.8);
+  }
+
+  /* 结尾 CTA 页 */
+  .page.final-cta .demo-icon {
+    font-size: 3.4rem;
+    margin-top: 0;
+  }
+  .page.final-cta .demo-title {
+    font-size: 3rem;
+    letter-spacing: 4px;
+  }
+  .page.final-cta .demo-desc {
+    font-size: 1.2rem;
+    letter-spacing: 2px;
+    margin-top: 18px;
+  }
+
+  /* 底部横线 */
+  .demo-line {
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #a855f7, #3b82f6, transparent);
+    margin-top: 24px;
+    border-radius: 2px;
+  }
+
+  /* ===== 动画 ===== */
+  .page.active .demo-number {
+    animation: numIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.1s forwards;
+  }
+  .page.active .demo-icon {
+    animation: childUp 0.5s cubic-bezier(0.16,1,0.3,1) 0.3s forwards;
+  }
+  .page.active .demo-title {
+    animation: childUp 0.5s cubic-bezier(0.16,1,0.3,1) 0.5s forwards;
+  }
+  .page.active .demo-desc {
+    animation: childUp 0.5s cubic-bezier(0.16,1,0.3,1) 0.7s forwards;
+  }
+  .page.active .demo-line {
+    animation: lineGrow 0.6s cubic-bezier(0.16,1,0.3,1) 0.9s forwards;
+  }
+
+  @keyframes numIn {
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes childUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes lineGrow {
+    to { width: 100px; }
+  }
+
+  /* 转场 */
+  .page.enter-in {
+    animation: pageEnter 0.6s cubic-bezier(0.16,1,0.3,1) forwards;
+  }
+  .page.exit-out {
+    animation: pageExit 0.35s cubic-bezier(0.7,0,0.84,0) forwards;
+  }
+  @keyframes pageEnter {
+    0%   { opacity: 0; transform: scale(1.15); filter: blur(12px); }
+    100% { opacity: 1; transform: scale(1); filter: blur(0); }
+  }
+  @keyframes pageExit {
+    0%   { opacity: 1; transform: scale(1); filter: blur(0); }
+    100% { opacity: 0; transform: scale(0.85); filter: blur(12px); }
+  }
+
+  /* 指示器 */
+  .page-dots {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 300;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(168,85,247,0.2);
+    transition: all 0.4s ease;
+  }
+  .dot.active {
+    background: #a855f7;
+    box-shadow: 0 0 12px rgba(168,85,247,0.5);
+    transform: scale(1.3);
+  }
+
+  /* 进度条 */
+  .progress-bar {
+    position: fixed;
+    bottom: 0; left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #a855f7, #3b82f6, #22c55e);
+    z-index: 300;
+    border-radius: 0 3px 3px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="global-glow"></div>
+<div class="scanline"></div>
+<div class="flash" id="flash"></div>
+<div class="particles" id="particles"></div>
+
+<!-- PAGE 1 -->
+<div class="page" id="page-0">
+  <div class="demo-number">01</div>
+  <div class="demo-icon">📂</div>
+  <div class="demo-title"><span class="grad">Local File Access</span></div>
+  <div class="demo-desc">Browse &amp; manage local files</div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- PAGE 2 -->
+<div class="page" id="page-1">
+  <div class="demo-number">02</div>
+  <div class="demo-icon">🗑️</div>
+  <div class="demo-title"><span class="grad">Delete Files</span></div>
+  <div class="demo-desc">Remove local files via terminal</div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- PAGE 3 -->
+<div class="page" id="page-2">
+  <div class="demo-number">03</div>
+  <div class="demo-icon">📋</div>
+  <div class="demo-title"><span class="grad">Copy Files</span></div>
+  <div class="demo-desc">Duplicate &amp; organize locally</div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- PAGE 4 -->
+<div class="page" id="page-3">
+  <div class="demo-number">04</div>
+  <div class="demo-icon">🔬</div>
+  <div class="demo-title"><span class="grad">Search &amp; Download</span></div>
+  <div class="demo-desc">Find papers · save to local machine</div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- PAGE 5 -->
+<div class="page" id="page-4">
+  <div class="demo-number">05</div>
+  <div class="demo-icon">📊</div>
+  <div class="demo-title"><span class="grad">Analyze &amp; Present</span></div>
+  <div class="demo-desc">Summarize docs · generate slides</div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- PAGE 6 -->
+<div class="page" id="page-5">
+  <div class="demo-number">06</div>
+  <div class="demo-icon">⚙️</div>
+  <div class="demo-title"><span class="grad">Fast Install</span></div>
+  <div class="demo-desc">No environment setup required</div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- PAGE 7 -->
+<div class="page final-cta" id="page-6">
+  <div class="demo-icon">🚀</div>
+  <div class="demo-title"><span class="grad">Join Our Beta</span></div>
+  <div class="demo-desc">Free Trial Now · <a href="https://xyzen.ai" target="_blank" rel="noopener noreferrer">xyzen.ai</a></div>
+  <div class="demo-line"></div>
+</div>
+
+<!-- 指示器 -->
+<div class="page-dots">
+  <div class="dot active" id="dot-0"></div>
+  <div class="dot" id="dot-1"></div>
+  <div class="dot" id="dot-2"></div>
+  <div class="dot" id="dot-3"></div>
+  <div class="dot" id="dot-4"></div>
+  <div class="dot" id="dot-5"></div>
+  <div class="dot" id="dot-6"></div>
+</div>
+<div class="progress-bar" id="progress"></div>
+
+<script>
+  // 粒子
+  const pc = document.getElementById('particles');
+  const colors = ['#a855f7','#3b82f6','#22c55e'];
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.left = Math.random()*100+'%';
+    p.style.top = Math.random()*100+'%';
+    p.style.background = colors[Math.floor(Math.random()*colors.length)];
+    p.style.animationDelay = Math.random()*5+'s';
+    p.style.animationDuration = (3+Math.random()*3)+'s';
+    pc.appendChild(p);
+  }
+
+  // 切换逻辑
+  const total = 7;
+  let current = 0;
+  const flash = document.getElementById('flash');
+  const stayDuration = 3000; // 每页停留 3 秒
+
+  function resetChildren(page) {
+    page.querySelectorAll('.demo-number,.demo-icon,.demo-title,.demo-desc').forEach(el => {
+      el.style.animation = 'none';
+      el.style.opacity = '0';
+      el.offsetHeight;
+      el.style.animation = '';
+    });
+    const line = page.querySelector('.demo-line');
+    if (line) {
+      line.style.animation = 'none';
+      line.style.width = '0';
+      line.offsetHeight;
+      line.style.animation = '';
+    }
+  }
+
+  function showPage(idx) {
+    // 闪光
+    flash.classList.remove('fire');
+    void flash.offsetWidth;
+    flash.classList.add('fire');
+
+    // 退出当前
+    const oldPage = document.getElementById('page-'+current);
+    oldPage.classList.remove('active','enter-in');
+    oldPage.classList.add('exit-out');
+
+    current = idx;
+
+    setTimeout(() => {
+      // 重置所有页
+      for (let i = 0; i < total; i++) {
+        const pg = document.getElementById('page-'+i);
+        pg.classList.remove('active','enter-in','exit-out');
+        pg.style.opacity = '0';
+        resetChildren(pg);
+      }
+      // 进入新页
+      const newPage = document.getElementById('page-'+current);
+      newPage.style.opacity = '';
+      newPage.classList.add('active','enter-in');
+    }, 350);
+
+    // 指示器
+    for (let i = 0; i < total; i++) {
+      document.getElementById('dot-'+i).classList.toggle('active', i===current);
+    }
+
+    // 进度条
+    updateProgress(current);
+  }
+
+  function updateProgress(idx) {
+    const bar = document.getElementById('progress');
+    const startW = (idx/total)*100;
+    const endW = ((idx+1)/total)*100;
+    bar.style.transition = 'none';
+    bar.style.width = startW+'%';
+    requestAnimationFrame(() => {
+      bar.style.transition = 'width '+stayDuration+'ms linear';
+      bar.style.width = endW+'%';
+    });
+  }
+
+  function autoPlay() {
+    showPage(current);
+    setTimeout(() => {
+      current = (current+1) % total;
+      autoPlay();
+    }, stayDuration);
+  }
+
+  // 首页直接显示
+  const firstPage = document.getElementById('page-0');
+  firstPage.style.opacity = '';
+  firstPage.classList.add('active','enter-in');
+  updateProgress(0);
+
+  setTimeout(() => {
+    current = 1;
+    autoPlay();
+  }, stayDuration);
+</script>
+
+</body>
+</html>

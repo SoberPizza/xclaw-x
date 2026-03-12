@@ -1,0 +1,2 @@
+[console_scripts]
+xclaw = xclaw.cli:cli

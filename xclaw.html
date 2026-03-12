@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>X-Claw — Launch Sequence</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@300;500;600;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d0a14;
+    color: #fff;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    font-family: 'Inter', sans-serif;
+  }
+
+  /* ===== 全局背景光晕 ===== */
+  .global-glow {
+    position: fixed;
+    top: -30%; left: -10%;
+    width: 120%; height: 120%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(168, 85, 247, 0.08) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 80%, rgba(59, 130, 246, 0.06) 0%, transparent 60%);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ===== 扫描线（微弱） ===== */
+  .scanline {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 3px,
+      rgba(168, 85, 247, 0.008) 3px, rgba(168, 85, 247, 0.008) 6px
+    );
+    pointer-events: none;
+    z-index: 200;
+  }
+
+  /* ===== 页面容器 ===== */
+  .page {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    opacity: 0;
+    pointer-events: none;
+    transition: none;
+  }
+
+  .page.active {
+    pointer-events: auto;
+  }
+
+  /* ===== 转场动画类 ===== */
+  .page.enter-zoom {
+    animation: enterZoom 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .page.exit-zoom {
+    animation: exitZoom 0.5s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+  }
+  .page.enter-slide-up {
+    animation: enterSlideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .page.exit-slide-up {
+    animation: exitSlideUp 0.4s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+  }
+  .page.enter-fade {
+    animation: enterFade 0.8s ease forwards;
+  }
+  .page.exit-fade {
+    animation: exitFade 0.4s ease forwards;
+  }
+  .page.enter-glitch {
+    animation: enterGlitch 0.6s steps(8) forwards;
+  }
+  .page.exit-glitch {
+    animation: exitGlitch 0.3s steps(5) forwards;
+  }
+  .page.enter-scale-rotate {
+    animation: enterScaleRotate 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .page.exit-scale-rotate {
+    animation: exitScaleRotate 0.4s ease forwards;
+  }
+
+  @keyframes enterZoom {
+    0%   { opacity: 0; transform: scale(1.3); filter: blur(20px); }
+    100% { opacity: 1; transform: scale(1); filter: blur(0); }
+  }
+  @keyframes exitZoom {
+    0%   { opacity: 1; transform: scale(1); filter: blur(0); }
+    100% { opacity: 0; transform: scale(0.7); filter: blur(15px); }
+  }
+  @keyframes enterSlideUp {
+    0%   { opacity: 0; transform: translateY(80px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes exitSlideUp {
+    0%   { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-80px); }
+  }
+  @keyframes enterFade {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  @keyframes exitFade {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes enterGlitch {
+    0%   { opacity: 0; transform: translate(-5px, 3px) skewX(-2deg); filter: hue-rotate(90deg); }
+    25%  { opacity: 0.5; transform: translate(3px, -2px) skewX(1deg); filter: hue-rotate(0deg); }
+    50%  { opacity: 0.7; transform: translate(-2px, 1px) skewX(-0.5deg); }
+    75%  { opacity: 0.9; transform: translate(1px, -1px); }
+    100% { opacity: 1; transform: translate(0) skewX(0); filter: hue-rotate(0deg); }
+  }
+  @keyframes exitGlitch {
+    0%   { opacity: 1; transform: translate(0); }
+    50%  { opacity: 0.5; transform: translate(4px, -3px) skewX(2deg); filter: hue-rotate(60deg); }
+    100% { opacity: 0; transform: translate(-6px, 4px) skewX(-3deg); filter: hue-rotate(120deg); }
+  }
+  @keyframes enterScaleRotate {
+    0%   { opacity: 0; transform: scale(0.5) rotate(-3deg); filter: blur(10px); }
+    100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+  }
+  @keyframes exitScaleRotate {
+    0%   { opacity: 1; transform: scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: scale(1.2) rotate(2deg); filter: blur(10px); }
+  }
+
+  /* ===== 内容动画（页面内元素逐个出现） ===== */
+  .anim-child {
+    opacity: 0;
+    transform: translateY(25px);
+  }
+  .page.active .anim-child {
+    animation: childIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .page.active .anim-child:nth-child(1) { animation-delay: 0.15s; }
+  .page.active .anim-child:nth-child(2) { animation-delay: 0.35s; }
+  .page.active .anim-child:nth-child(3) { animation-delay: 0.55s; }
+  .page.active .anim-child:nth-child(4) { animation-delay: 0.75s; }
+  .page.active .anim-child:nth-child(5) { animation-delay: 0.95s; }
+
+  @keyframes childIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ===== PAGE 1: 品牌冲击 ===== */
+  .p1-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8rem;
+    font-weight: 800;
+    letter-spacing: 14px;
+    background: linear-gradient(135deg, #a855f7 0%, #3b82f6 50%, #22c55e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+  }
+  .p1-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    letter-spacing: 8px;
+    color: rgba(188, 188, 212, 0.7);
+    margin-top: 16px;
+    text-transform: uppercase;
+  }
+  .p1-sub span { color: #a855f7; font-weight: 700; }
+  .p1-line {
+    width: 120px;
+    height: 3px;
+    background: linear-gradient(90deg, #a855f7, #3b82f6);
+    margin-top: 20px;
+    border-radius: 2px;
+  }
+  .p1-tagline {
+    font-size: 3rem;
+    font-weight: 300;
+    color: rgba(255,255,255,0.5);
+    margin-top: 30px;
+    letter-spacing: 2px;
+  }
+
+  /* ===== PAGE 2: 痛点 ===== */
+  .p2-pain {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.2rem;
+    color: rgba(255,255,255,0.25);
+    text-decoration: line-through;
+    text-decoration-color: rgba(255,100,100,0.5);
+    letter-spacing: 2px;
+    line-height: 1.8;
+    text-align: center;
+  }
+  .p2-divider {
+    width: 60px;
+    height: 3px;
+    background: linear-gradient(90deg, #a855f7, #3b82f6);
+    margin: 35px 0;
+    border-radius: 3px;
+  }
+  .p2-answer {
+    font-size: 3rem;
+    font-weight: 800;
+    text-align: center;
+    background: linear-gradient(90deg, #a855f7, #3b82f6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 3px;
+  }
+
+  /* ===== PAGE 3: 三大特性 ===== */
+  .p3-heading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    letter-spacing: 6px;
+    color: rgba(188, 188, 212, 0.4);
+    text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+  .features-row {
+    display: flex;
+    gap: 28px;
+  }
+  .feat-card {
+    width: 260px;
+    padding: 32px 28px;
+    border: 1px solid rgba(168, 85, 247, 0.15);
+    border-radius: 16px;
+    background: rgba(28, 27, 34, 0.8);
+    backdrop-filter: blur(20px);
+    text-align: center;
+    transition: border-color 0.3s, transform 0.3s;
+  }
+  .feat-card:hover {
+    border-color: rgba(168, 85, 247, 0.4);
+    transform: translateY(-4px);
+  }
+  .feat-icon { font-size: 2.4rem; margin-bottom: 16px; }
+  .feat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #a855f7;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+  .feat-desc {
+    font-size: 0.88rem;
+    color: rgba(188, 188, 212, 0.6);
+    line-height: 1.6;
+    font-weight: 300;
+  }
+
+  /* ===== PAGE 4: 对比 ===== */
+  .p4-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    letter-spacing: 6px;
+    color: rgba(188, 188, 212, 0.4);
+    text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+  .compare-table {
+    display: grid;
+    grid-template-columns: 200px 160px 160px;
+    gap: 0;
+    border: 1px solid rgba(168, 85, 247, 0.15);
+    border-radius: 16px;
+    overflow: hidden;
+    background: rgba(28, 27, 34, 0.6);
+    backdrop-filter: blur(20px);
+  }
+  .ct-cell {
+    padding: 18px 20px;
+    font-size: 0.92rem;
+    color: rgba(188, 188, 212, 0.7);
+    border-bottom: 1px solid rgba(168, 85, 247, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ct-cell:nth-child(3n+1) {
+    justify-content: flex-start;
+    padding-left: 28px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.6);
+  }
+  .ct-header {
+    background: rgba(168, 85, 247, 0.1);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .ct-header.xclaw-col { color: #a855f7; }
+  .ct-win { color: #22c55e !important; font-weight: 600; }
+  .ct-lose { color: rgba(188, 188, 212, 0.3) !important; }
+  .no-border { border-bottom: none; }
+
+  /* ===== PAGE 5: CTA ===== */
+  .p5-stop {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.8rem;
+    font-weight: 800;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 4px;
+  }
+  .p5-start {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.5rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, #a855f7, #3b82f6, #22c55e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 5px;
+    margin-top: 8px;
+  }
+  .p5-divider {
+    width: 80px;
+    height: 3px;
+    background: linear-gradient(90deg, #a855f7, #3b82f6);
+    margin: 30px 0;
+    border-radius: 3px;
+  }
+  .p5-terminal {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9rem;
+    color: rgba(188, 188, 212, 0.4);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+  .p5-url {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: #a855f7;
+    letter-spacing: 3px;
+    margin-top: 20px;
+    padding: 12px 28px;
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    border-radius: 8px;
+    background: rgba(168, 85, 247, 0.05);
+  }
+
+  /* ===== 进度条 ===== */
+  .progress-bar {
+    position: fixed;
+    bottom: 0; left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #a855f7, #3b82f6, #22c55e);
+    z-index: 300;
+    transition: width 0.3s linear;
+    border-radius: 0 3px 3px 0;
+  }
+
+  /* ===== 页码指示器 ===== */
+  .page-dots {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 300;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(168, 85, 247, 0.2);
+    transition: all 0.4s ease;
+  }
+  .dot.active {
+    background: #a855f7;
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
+    transform: scale(1.3);
+  }
+
+  /* ===== 粒子 ===== */
+  .particles {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1; pointer-events: none;
+  }
+  .particle {
+    position: absolute;
+    width: 2px; height: 2px;
+    border-radius: 50%;
+    opacity: 0;
+    animation: particleFloat 4s ease-in-out infinite;
+  }
+  @keyframes particleFloat {
+    0%   { opacity: 0; transform: translateY(0) scale(1); }
+    50%  { opacity: 0.5; }
+    100% { opacity: 0; transform: translateY(-100px) scale(0.5); }
+  }
+
+  /* ===== 闪烁光标 ===== */
+  .cursor {
+    display: inline-block;
+    width: 3px; height: 1em;
+    background: #a855f7;
+    margin-left: 4px;
+    vertical-align: text-bottom;
+    animation: blink 0.7s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ===== 脉冲闪光（转场瞬间） ===== */
+  .flash {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(168, 85, 247, 0.06);
+    z-index: 150;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .flash.fire {
+    animation: flashFire 0.3s ease-out forwards;
+  }
+  @keyframes flashFire {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="global-glow"></div>
+<div class="scanline"></div>
+<div class="flash" id="flash"></div>
+<div class="particles" id="particles"></div>
+
+<!-- ===== PAGE 1: 品牌冲击 ===== -->
+<div class="page" id="page-0">
+  <div class="anim-child p1-title">X-CLAW</div>
+  <div class="anim-child p1-sub"><span></span> From  <span>Xyzen.AI</span></div>
+  <div class="anim-child p1-line"></div>
+  <div class="anim-child p1-tagline">Outperforming OpenClaw<span class="cursor"></span></div>
+</div>
+
+<!-- ===== PAGE 2: 痛点 ===== -->
+<div class="page" id="page-1">
+  <div class="anim-child p2-pain">API Keys</div>
+  <div class="anim-child p2-pain">Environment Variables</div>
+  <div class="anim-child p2-pain">Complex Configurations</div>
+  <div class="anim-child p2-divider"></div>
+  <div class="anim-child p2-answer">1-Minute Setup<br>Zero Friction</div>
+</div>
+
+<!-- ===== PAGE 5: CTA ===== -->
+<div class="page" id="page-2">
+  <div class="anim-child p5-stop">Stop Configuring</div>
+  <div class="anim-child p5-start">Start Executing</div>
+  <div class="anim-child p5-divider"></div>
+  <div class="anim-child p5-url">github.com/ScienceOL/Xyzen</div>
+  <div class="anim-child p5-url">xyzen.ai</div>
+</div>
+
+<!-- ===== 进度条 & 页码 ===== -->
+<div class="progress-bar" id="progress"></div>
+<div class="page-dots">
+  <div class="dot active" id="dot-0"></div>
+  <div class="dot" id="dot-1"></div>
+  <div class="dot" id="dot-2"></div>
+</div>
+
+<script>
+  // 粒子
+  const pc = document.getElementById('particles');
+  const colors = ['#a855f7', '#3b82f6', '#22c55e'];
+  for (let i = 0; i < 30; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.left = Math.random() * 100 + '%';
+    p.style.top = Math.random() * 100 + '%';
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDelay = Math.random() * 5 + 's';
+    p.style.animationDuration = (3 + Math.random() * 3) + 's';
+    pc.appendChild(p);
+  }
+
+  // 页面切换逻辑
+  const pages = 3;
+  let current = 0;
+  const flash = document.getElementById('flash');
+
+  // 每页的转场风格：[enter, exit]
+  const transitions = [
+    ['enter-zoom',         'exit-zoom'],
+    ['enter-slide-up',     'exit-slide-up'],
+    ['enter-fade',         'exit-fade'],
+  ];
+
+  // 每页停留时间（ms）—— 节奏感：短-中-长-中-长
+  const durations = [3000, 3500, 5000];
+
+  function showPage(index) {
+    // 闪光
+    flash.classList.remove('fire');
+    void flash.offsetWidth;
+    flash.classList.add('fire');
+
+    // 退出当前页
+    const oldPage = document.getElementById('page-' + current);
+    if (oldPage) {
+      oldPage.classList.remove('active', transitions[current][0]);
+      oldPage.classList.add(transitions[current][1]);
+    }
+
+    // 进入新页
+    current = index;
+    const newPage = document.getElementById('page-' + current);
+
+    setTimeout(() => {
+      // 清理所有页
+      for (let i = 0; i < pages; i++) {
+        const pg = document.getElementById('page-' + i);
+        pg.classList.remove('active', ...transitions[i]);
+        pg.style.opacity = '0';
+        // 重置子元素动画
+        pg.querySelectorAll('.anim-child').forEach(c => {
+          c.style.animation = 'none';
+          c.offsetHeight;
+          c.style.animation = '';
+        });
+      }
+      newPage.style.opacity = '';
+      newPage.classList.add('active', transitions[current][0]);
+    }, current === 0 ? 0 : 400);
+
+    // 更新指示器
+    for (let i = 0; i < pages; i++) {
+      document.getElementById('dot-' + i).classList.toggle('active', i === current);
+    }
+
+    // 进度条
+    updateProgress(current);
+  }
+
+  // 进度条动画
+  function updateProgress(idx) {
+    const bar = document.getElementById('progress');
+    const startW = (idx / pages) * 100;
+    const endW = ((idx + 1) / pages) * 100;
+    bar.style.transition = 'none';
+    bar.style.width = startW + '%';
+    requestAnimationFrame(() => {
+      bar.style.transition = 'width ' + durations[idx] + 'ms linear';
+      bar.style.width = endW + '%';
+    });
+  }
+
+  // 自动播放
+  function autoPlay() {
+    showPage(current);
+    setTimeout(() => {
+      current = (current + 1) % pages;
+      autoPlay();
+    }, durations[current]);
+  }
+
+  // 启动
+  autoPlay();
+</script>
+</body>
+</html>

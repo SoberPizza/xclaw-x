@@ -36,5 +36,11 @@ def press_key(key: str) -> dict:
     Returns:
         {"status": "ok", "action": "press", "key": key}
     """
-    pyautogui.press(key)
+    if HUMANIZE:
+        import random, time as _time
+        _time.sleep(random.uniform(0.03, 0.12))
+    if "+" in key:
+        pyautogui.hotkey(*key.split("+"))
+    else:
+        pyautogui.press(key)
     return {"status": "ok", "action": "press", "key": key}

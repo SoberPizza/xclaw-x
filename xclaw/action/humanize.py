@@ -73,6 +73,35 @@ def humanized_click(x: int, y: int, double: bool = False):
     pyautogui.click(x + offset_x, y + offset_y, clicks=clicks)
 
 
+def humanized_scroll(direction: str, amount: int, x: int, y: int):
+    """Scroll with human-like behavior: Bezier move, jitter, randomized intervals.
+
+    Args:
+        direction: 'up' or 'down'.
+        amount: Total scroll units.
+        x: Target X coordinate.
+        y: Target Y coordinate.
+    """
+    current = pyautogui.position()
+    # Add small random offset to target
+    jitter_x = x + random.randint(-5, 5)
+    jitter_y = y + random.randint(-5, 5)
+    bezier_move((current.x, current.y), (jitter_x, jitter_y))
+
+    scroll_amount = amount if direction == "up" else -amount
+
+    # Break large scrolls into smaller chunks with random pauses
+    chunk_min, chunk_max = max(1, abs(scroll_amount) // 5), max(2, abs(scroll_amount) // 2)
+    remaining = abs(scroll_amount)
+    sign = 1 if scroll_amount > 0 else -1
+    while remaining > 0:
+        chunk = min(remaining, random.randint(chunk_min, chunk_max))
+        pyautogui.scroll(chunk * sign)
+        remaining -= chunk
+        if remaining > 0:
+            time.sleep(random.uniform(0.02, 0.08))
+
+
 def humanized_type(text: str, delay_range: tuple = None):
     """Type text with random inter-key delays.
 

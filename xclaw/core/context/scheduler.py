@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 
-from xclaw.config import CONTEXT_MAX_CONSECUTIVE_CHEAP
+from xclaw.config import CONTEXT_MAX_CONSECUTIVE_CHEAP, CONTEXT_POST_ACTION_DELAY
 from xclaw.core.context.state import ContextState
 from xclaw.core.context.predict import predict
 from xclaw.core.context.peek import peek
 from xclaw.core.context.glance import glance, _elements_to_dicts
 from xclaw.core.screen import take_screenshot
 from xclaw.core.pipeline import run_pipeline
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,11 +53,11 @@ def _run_full(screenshot_path: str, state: ContextState, escalation: list[str] |
 
 
 def schedule(
-    action_result: dict,
+    action_result: dict | None = None,
     *,
     force_level: str | None = None,
 ) -> SchedulerResult:
-    """Run the smart perception scheduler after an action.
+    """Run the smart perception scheduler, optionally after an action.
 
     Decision flow:
     1. Force L2 if: no state, force_level="L2", critical action, too many cheap, stale cache
@@ -66,7 +69,7 @@ def schedule(
     4. Safety: any error at lower level → escalate to next
 
     Args:
-        action_result: The action command's output dict (e.g. {"status":"ok","action":"click",...}).
+        action_result: The action command's output dict, or None for standalone look.
         force_level: Override to skip decision logic ("L1" or "L2").
 
     Returns:
@@ -78,11 +81,15 @@ def schedule(
     # Load persisted state
     state = ContextState.load()
 
-    # Record the action that triggered this perception
-    if state is not None and action_result.get("action"):
+    # Record the action that triggered this perception (if any)
+    if action_result is not None and state is not None and action_result.get("action"):
         params = {k: v for k, v in action_result.items() if k not in ("status", "action")}
         state.record_action(action_result["action"], params)
         state.save()
+
+    # Wait for screen to settle after action (e.g. menu opening, form submitting)
+    if action_result is not None and CONTEXT_POST_ACTION_DELAY > 0:
+        time.sleep(CONTEXT_POST_ACTION_DELAY)
 
     # Take a screenshot for comparison
     screen = take_screenshot()
@@ -94,7 +101,7 @@ def schedule(
             state = ContextState()
         return _run_full(screenshot_path, state)
 
-    if state.is_critical_action():
+    if action_result is not None and state.is_critical_action():
         return _run_full(screenshot_path, state)
 
     if state.consecutive_cheap_count >= CONTEXT_MAX_CONSECUTIVE_CHEAP:
@@ -201,9 +208,8 @@ def schedule(
                 level="L2", perception=result_dict, confidence=state.confidence,
                 escalation_path=list(escalation), elapsed_ms=elapsed,
             )
-        except Exception:
-            # Glance failed → fall through to full pipeline
-            pass
+        except Exception as exc:
+            logger.warning("Glance failed, falling back to full pipeline: %s", exc)
 
     # Full pipeline
     return _run_full(screenshot_path, state, escalation=list(escalation))

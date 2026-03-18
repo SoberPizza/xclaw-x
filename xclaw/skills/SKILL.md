@@ -1,6 +1,6 @@
 ---
 name: xclaw
-description: X-Claw visual agent skill. Take screenshots, parse screen elements, and perform mouse/keyboard operations via the xclaw CLI. Use when you need to perceive screen content or execute GUI operations.
+description: X-Claw visual agent skill. Observe the screen and perform mouse/keyboard operations. Commands: init, look, click, type, press, scroll, wait.
 allowed-tools: Bash(xclaw *), Read
 ---
 

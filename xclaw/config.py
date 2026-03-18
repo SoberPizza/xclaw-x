@@ -20,7 +20,7 @@ OMNIPARSER_CONFIG = {
     "som_model_path": str(WEIGHTS_DIR / "icon_detect" / "model.pt"),
     "caption_model_name": "florence2",
     "caption_model_path": str(WEIGHTS_DIR / "icon_caption_florence"),
-    "BOX_TRESHOLD": 0.01,
+    "BOX_TRESHOLD": 0.05,
 }
 
 # ── 行为人性化 ──
@@ -57,3 +57,4 @@ CONTEXT_OVERLAP_DISCARD_THRESHOLD = 0.5     # glance 缓存元素重叠比超此
 CONTEXT_CONFIDENCE_L0 = 0.8                 # predict 置信度阈值: L0
 CONTEXT_CONFIDENCE_L1 = 0.5                 # predict 置信度阈值: L1
 CONTEXT_CONFIDENCE_L2 = 0.3                 # predict 置信度阈值: L2
+CONTEXT_POST_ACTION_DELAY = 0.15             # 操作后截屏前等待秒数（等待视觉反馈）

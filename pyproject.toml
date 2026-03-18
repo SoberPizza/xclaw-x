@@ -24,6 +24,7 @@ dependencies = [
 
     # 鼠标键盘控制
     "pyautogui>=0.9.54",
+    "pyperclip>=1.8.0",
 
     # 图像处理
     "Pillow>=10.0.0",

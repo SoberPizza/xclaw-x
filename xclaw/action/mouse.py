@@ -42,12 +42,13 @@ def scroll(direction: str, amount: int, x: int | None = None, y: int | None = No
         x = pyautogui.size().width // 2
         y = pyautogui.size().height // 2
 
-    # Move mouse to specified position
-    pyautogui.moveTo(x, y)
-    time.sleep(0.1)  # Wait for mouse movement to complete
-
-    # Execute scroll
-    scroll_amount = amount if direction == "up" else -amount
-    pyautogui.scroll(scroll_amount)
+    if HUMANIZE:
+        from xclaw.action.humanize import humanized_scroll
+        humanized_scroll(direction, amount, x, y)
+    else:
+        pyautogui.moveTo(x, y)
+        time.sleep(0.1)
+        scroll_amount = amount if direction == "up" else -amount
+        pyautogui.scroll(scroll_amount)
 
     return {"status": "ok", "action": "scroll", "direction": direction, "amount": amount, "x": x, "y": y}

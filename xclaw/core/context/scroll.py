@@ -35,8 +35,11 @@ def analyze_scroll(
     Returns:
         ScrollAnalysis with estimated y offset and new strip bbox.
     """
-    prev = cv2.imread(previous_path, cv2.IMREAD_GRAYSCALE)
-    curr = cv2.imread(current_path, cv2.IMREAD_GRAYSCALE)
+    try:
+        prev = cv2.imread(previous_path, cv2.IMREAD_GRAYSCALE)
+        curr = cv2.imread(current_path, cv2.IMREAD_GRAYSCALE)
+    except Exception:
+        return ScrollAnalysis(offset_y=0, confidence=0.0, matched_points=0, new_strip=None)
 
     if prev is None or curr is None:
         return ScrollAnalysis(offset_y=0, confidence=0.0, matched_points=0, new_strip=None)

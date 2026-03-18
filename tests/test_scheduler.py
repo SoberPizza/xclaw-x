@@ -188,3 +188,47 @@ class TestEscalationPathCorrectness:
         assert "L0" in result.escalation_path
         assert "L1" in result.escalation_path
         assert "L2" in result.escalation_path
+
+
+class TestScheduleNoAction:
+    """schedule() called with no action_result (standalone look)."""
+
+    @patch("xclaw.core.context.scheduler.take_screenshot")
+    @patch("xclaw.core.context.scheduler.run_pipeline")
+    def test_no_action_no_state_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
+        """No state + no action → L2 full pipeline."""
+        state_path = tmp_path / ".context_state.json"
+        monkeypatch.setattr("xclaw.core.context.state.CONTEXT_STATE_PATH", state_path)
+
+        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
+        mock_pipeline.return_value = _make_pipeline_result()
+
+        result = schedule()
+        assert result.level == "L2"
+        mock_pipeline.assert_called_once()
+
+    @patch("xclaw.core.context.scheduler.take_screenshot")
+    @patch("xclaw.core.context.scheduler.peek")
+    def test_no_action_with_state_uses_decision_flow(self, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """Existing state + no action → normal L0/L1 decision flow (no critical action check)."""
+        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
+
+        # High confidence + no action → L0 cache hit
+        result = schedule()
+        assert result.level == "L0"
+        mock_peek.assert_not_called()
+
+    @patch("xclaw.core.context.scheduler.take_screenshot")
+    @patch("xclaw.core.context.scheduler.peek")
+    def test_no_action_does_not_record_action(self, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """schedule() with no action_result should not record an action in state."""
+        state = _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        original_history_len = len(state.action_history)
+
+        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
+
+        schedule()
+
+        reloaded = ContextState.load()
+        assert len(reloaded.action_history) == original_history_len

@@ -39,7 +39,6 @@ def _mock_state(tmp_path, monkeypatch, **overrides):
         last_perception_time=time.time() - 1,
         cached_elements=[],
         cached_resolution=(1920, 1080),
-        confidence=1.0,
     )
     defaults.update(overrides)
     state = ContextState(**defaults)
@@ -47,90 +46,59 @@ def _mock_state(tmp_path, monkeypatch, **overrides):
     return state
 
 
-class TestSafetyCriticalAction:
-    @patch("xclaw.core.context.scheduler.take_screenshot")
-    @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_enter_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
-        """Press enter should force L2 regardless of confidence."""
-        state = _mock_state(tmp_path, monkeypatch, confidence=1.0)
-        state.record_action("press", {"key": "enter"})
-        state.save()
-
-        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
-        mock_pipeline.return_value = _make_pipeline_result()
-
-        result = schedule({"status": "ok", "action": "press", "key": "enter"})
-        assert result.level == "L2"
-
-    @patch("xclaw.core.context.scheduler.take_screenshot")
-    @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_f5_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
-        state = _mock_state(tmp_path, monkeypatch, confidence=1.0)
-        state.record_action("press", {"key": "f5"})
-        state.save()
-
-        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
-        mock_pipeline.return_value = _make_pipeline_result()
-
-        result = schedule({"status": "ok", "action": "press", "key": "f5"})
-        assert result.level == "L2"
-
-
 class TestSafetyConsecutiveCheap:
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_max_consecutive_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
-        """After 4 consecutive cheap perceptions, 5th should force L2."""
+    def test_max_consecutive_forces_l3(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
+        """After 4 consecutive cheap perceptions, 5th should force L3."""
         state = _mock_state(
             tmp_path, monkeypatch,
-            confidence=1.0,
             consecutive_cheap_count=4,
         )
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "type", "text": "a"})
-        assert result.level == "L2"
+        assert result.level == "L3"
 
 
 class TestSafetyStaleCache:
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_stale_cache_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
-        """Cache older than 15s should force L2."""
+    def test_stale_cache_forces_l3(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
+        """Cache older than 15s should force L3."""
         state = _mock_state(
             tmp_path, monkeypatch,
-            confidence=1.0,
             last_perception_time=time.time() - 20,
         )
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "type", "text": "a"})
-        assert result.level == "L2"
+        assert result.level == "L3"
 
 
 class TestSafetyEscalation:
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.peek")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_peek_error_escalates_to_l2(self, mock_pipeline, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """If peek() raises, scheduler should escalate to L2."""
-        _mock_state(tmp_path, monkeypatch, confidence=0.7)
+    def test_peek_error_escalates_to_l3(self, mock_pipeline, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """If peek() raises, scheduler should escalate to L3."""
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_peek.side_effect = RuntimeError("cv2 failure")
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "click", "x": 1, "y": 2})
-        assert result.level == "L2"
+        assert result.level == "L3"
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.peek")
     @patch("xclaw.core.context.scheduler.glance")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_glance_error_escalates_to_l2(self, mock_pipeline, mock_glance, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """If glance() raises, scheduler should escalate to L2."""
-        _mock_state(tmp_path, monkeypatch, confidence=0.7)
+    def test_glance_error_escalates_to_l3(self, mock_pipeline, mock_glance, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """If glance() raises, scheduler should escalate to L3."""
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_peek.return_value = PeekResult(
             changed=True, diff_ratio=0.08, change_regions=[(100, 100, 200, 200)],
@@ -141,7 +109,7 @@ class TestSafetyEscalation:
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "click", "x": 1, "y": 2})
-        assert result.level == "L2"
+        assert result.level == "L3"
 
 
 class TestSafetyStateSaveFailure:
@@ -150,20 +118,20 @@ class TestSafetyStateSaveFailure:
     @patch("xclaw.core.context.scheduler.run_pipeline")
     def test_save_failure_still_returns_result(self, mock_pipeline, mock_screen, mock_replace, tmp_path, monkeypatch):
         """If state.save() raises OSError, scheduler should still return a result."""
-        state = _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        state = _mock_state(tmp_path, monkeypatch)
 
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_pipeline.return_value = _make_pipeline_result()
         mock_replace.side_effect = OSError("disk full")
 
-        result = schedule({"status": "ok", "action": "press", "key": "enter"})
-        assert result.level == "L2"
+        # With stale state (1s old) and no diff → L1, but save fails silently
+        result = schedule({"status": "ok", "action": "type", "text": "a"})
         assert result.perception is not None
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
     def test_screenshot_failure_propagates(self, mock_screen, tmp_path, monkeypatch):
         """If take_screenshot raises, schedule should propagate the error."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.side_effect = RuntimeError("monitor not found")
 
         import pytest

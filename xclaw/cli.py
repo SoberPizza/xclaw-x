@@ -47,67 +47,54 @@ def _action_with_look(action_result: dict) -> dict:
         "perception": perception,
         "_meta": {
             "level": sr.level,
-            "confidence": round(sr.confidence, 2),
+            "diff_ratio": sr.diff_ratio,
             "changed": meta.get("changed"),
-            "diff_ratio": meta.get("diff_ratio"),
             "elapsed_ms": sr.elapsed_ms,
         },
     }
 
 
+def _silence_for_cli():
+    """Suppress all non-JSON output when running as CLI (for LLM consumption)."""
+    import logging
+    import os
+    import warnings
+
+    # Python logging → CRITICAL only
+    logging.getLogger().setLevel(logging.CRITICAL)
+
+    # Python warnings → off
+    warnings.filterwarnings("ignore")
+
+    # Third-party env vars
+    os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+    os.environ["YOLO_VERBOSE"] = "False"
+
+    # PaddlePaddle GLOG (C++ layer) — 2=ERROR, suppresses INFO+WARNING
+    os.environ["GLOG_minloglevel"] = "2"
+
+    # PaddleX: skip connectivity check + suppress colored logs
+    os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "1"
+    for name in ("paddlex", "paddlex.inference", "paddlex.utils"):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.CRITICAL)
+        lg.propagate = False
+
+    # ONNX Runtime (C++ layer) — 3=Error
+    os.environ["ORT_LOG_LEVEL"] = "3"
+
+    # transformers / huggingface_hub tqdm progress bars
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+
+
 @click.group()
 def main():
     """X-Claw Visual Agent CLI"""
-    pass
+    _silence_for_cli()
 
 
 # ── Perception ────────────────────────────────────────────────────
-
-
-@main.command()
-def init():
-    """Initialize X-Claw: verify models, permissions, and dependencies."""
-    import sys
-    import platform
-
-    try:
-        click.echo("Initializing X-Claw...", err=True)
-
-        # macOS permission check
-        if platform.system() == "Darwin":
-            from xclaw.platform.permissions import check_permissions
-            if not check_permissions():
-                click.echo("⚠ Fix permissions above, then re-run `xclaw init`", err=True)
-                sys.exit(1)
-
-        click.echo("Loading perception models (this may take a while on first run)...", err=True)
-
-        from xclaw.core.perception.engine import PerceptionEngine
-        engine = PerceptionEngine.get_instance()
-        engine._ensure_models()
-
-        click.echo("✓ Perception engine initialized successfully", err=True)
-        click.echo("✓ All models loaded", err=True)
-
-        from xclaw.config import PLATFORM
-        _output({
-            "status": "ok",
-            "message": "X-Claw initialization complete",
-            "components": {
-                "perception_engine": "ready",
-                "device": PLATFORM.gpu_backend,
-                "platform": PLATFORM.system,
-                "arch": PLATFORM.arch,
-                "memory_gb": PLATFORM.memory_gb,
-            }
-        })
-    except Exception as e:
-        click.echo(f"✗ Initialization failed: {e}", err=True)
-        _output({
-            "status": "error",
-            "error": str(e),
-        })
-        sys.exit(1)
 
 
 @main.command()
@@ -122,9 +109,8 @@ def look():
         **perception,
         "_meta": {
             "level": sr.level,
-            "confidence": round(sr.confidence, 2),
+            "diff_ratio": sr.diff_ratio,
             "changed": meta.get("changed"),
-            "diff_ratio": meta.get("diff_ratio"),
             "elapsed_ms": sr.elapsed_ms,
         },
     }
@@ -189,20 +175,16 @@ def wait(seconds):
     _output(_action_with_look(result))
 
 
-# ── Daemon ────────────────────────────────────────────────────────
+# ── Emergency ─────────────────────────────────────────────────────
 
 
-@main.command("daemon-status")
-def daemon_status():
-    """Check if the perception daemon is running."""
-    from xclaw.core.daemon import is_daemon_alive
-    alive = is_daemon_alive()
-    _output({"status": "alive" if alive else "stopped"})
+@main.command()
+def stop():
+    """Emergency stop: kill the perception daemon.
 
-
-@main.command("daemon-stop")
-def daemon_stop():
-    """Stop the perception daemon."""
+    Use ONLY when the daemon is stuck or crashed. Under normal operation
+    the daemon exits automatically after 300 seconds of idle time.
+    """
     from xclaw.core.daemon import is_daemon_alive, request_perception
     if is_daemon_alive():
         try:
@@ -212,40 +194,6 @@ def daemon_stop():
         _output({"status": "stopped"})
     else:
         _output({"status": "not_running"})
-
-
-@main.command("daemon-backends")
-def daemon_backends():
-    """List registered perception backends and their stats."""
-    from xclaw.core.daemon import list_backends
-    _output(list_backends())
-
-
-@main.command("daemon-switch-backend")
-@click.argument("name")
-def daemon_switch_backend(name):
-    """Switch the active perception backend."""
-    from xclaw.core.daemon import switch_backend
-    _output(switch_backend(name))
-
-
-@main.command("daemon-backend-status")
-@click.option("--name", default=None, help="Backend name (default: active)")
-def daemon_backend_status(name):
-    """Show status/stats for a perception backend."""
-    from xclaw.core.daemon import backend_status
-    _output(backend_status(name))
-
-
-# ── Setup ─────────────────────────────────────────────────────────
-
-
-@main.command()
-def setup():
-    """Download models and run post-install initialization."""
-    import sys as _sys
-    from xclaw.installer.postinstall import run_postinstall
-    _sys.exit(run_postinstall())
 
 
 if __name__ == "__main__":

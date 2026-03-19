@@ -4,7 +4,6 @@ import time
 from unittest.mock import patch, MagicMock
 
 from xclaw.core.context.state import ContextState
-from xclaw.core.context.predict import PredictResult
 from xclaw.core.context.peek import PeekResult
 from xclaw.core.context.glance import GlanceResult
 from xclaw.core.pipeline import PipelineResult
@@ -44,7 +43,6 @@ def _mock_state(tmp_path, monkeypatch, **overrides):
         last_perception_time=time.time() - 1,
         cached_elements=[],
         cached_resolution=(1920, 1080),
-        confidence=1.0,
     )
     defaults.update(overrides)
     state = ContextState(**defaults)
@@ -52,10 +50,10 @@ def _mock_state(tmp_path, monkeypatch, **overrides):
     return state
 
 
-class TestScheduleForceL2:
+class TestScheduleForceL3:
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_no_state_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
+    def test_no_state_forces_l3(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
         state_path = tmp_path / ".context_state.json"
         monkeypatch.setattr("xclaw.core.context.state.CONTEXT_STATE_PATH", state_path)
 
@@ -63,7 +61,7 @@ class TestScheduleForceL2:
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "click", "x": 100, "y": 200})
-        assert result.level == "L2"
+        assert result.level == "L3"
         mock_pipeline.assert_called_once()
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
@@ -74,44 +72,25 @@ class TestScheduleForceL2:
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "click"}, force_level="L2")
-        assert result.level == "L2"
-
-
-class TestScheduleL0:
-    @patch("xclaw.core.context.scheduler.take_screenshot")
-    @patch("xclaw.core.context.scheduler.peek")
-    def test_high_confidence_returns_cache(self, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """When confidence > 0.8 with no action, L0 should return cache."""
-        state = _mock_state(tmp_path, monkeypatch, confidence=1.0)
-        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
-
-        result = schedule(None)  # no action → L0 allowed
-        assert result.level == "L0"
-        assert result.confidence > 0.8
-        mock_peek.assert_not_called()
+        assert result.level == "L3"
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
-    @patch("xclaw.core.context.scheduler.peek")
-    def test_post_action_skips_l0(self, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """After an action, L0 cache is skipped — at least L1 peek runs."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+    @patch("xclaw.core.context.scheduler.run_pipeline")
+    def test_force_level_l3(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
-        mock_peek.return_value = PeekResult(
-            changed=False, diff_ratio=0.005, change_regions=[],
-            screenshot_path="screen.png", elapsed_ms=40,
-        )
+        mock_pipeline.return_value = _make_pipeline_result()
 
-        result = schedule({"status": "ok", "action": "type", "text": "a"})
-        assert result.level == "L1"
-        mock_peek.assert_called_once()
+        result = schedule({"status": "ok", "action": "click"}, force_level="L3")
+        assert result.level == "L3"
 
 
 class TestScheduleL1:
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.peek")
     def test_no_change_returns_cache(self, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """Click → confidence 0.75 → L1 peek → no change → return cache."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        """Click → peek → no change → return cache."""
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_peek.return_value = PeekResult(
             changed=False, diff_ratio=0.005, change_regions=[],
@@ -120,8 +99,23 @@ class TestScheduleL1:
 
         result = schedule({"status": "ok", "action": "click", "x": 100, "y": 200})
         assert result.level == "L1"
-        assert "L0" in result.escalation_path
         assert "L1" in result.escalation_path
+        mock_peek.assert_called_once()
+
+    @patch("xclaw.core.context.scheduler.take_screenshot")
+    @patch("xclaw.core.context.scheduler.peek")
+    def test_no_action_peeks(self, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """No action → still runs peek (no more L0 cache skip)."""
+        _mock_state(tmp_path, monkeypatch)
+        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
+        mock_peek.return_value = PeekResult(
+            changed=False, diff_ratio=0.005, change_regions=[],
+            screenshot_path="screen.png", elapsed_ms=40,
+        )
+
+        result = schedule(None)
+        assert result.level == "L1"
+        mock_peek.assert_called_once()
 
 
 class TestScheduleL2:
@@ -130,7 +124,7 @@ class TestScheduleL2:
     @patch("xclaw.core.context.scheduler.glance")
     def test_minor_change_triggers_glance(self, mock_glance, mock_peek, mock_screen, tmp_path, monkeypatch):
         """Click → peek shows minor change → L2 glance."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_peek.return_value = PeekResult(
             changed=True, diff_ratio=0.08, change_regions=[(100, 100, 200, 200)],
@@ -155,7 +149,7 @@ class TestScheduleForceL1:
     @patch("xclaw.core.context.scheduler.peek")
     def test_force_l1_path(self, mock_peek, mock_screen, tmp_path, monkeypatch):
         """force_level=L1 should run peek and return L1."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_peek.return_value = PeekResult(
             changed=False, diff_ratio=0.005, change_regions=[],
@@ -168,27 +162,14 @@ class TestScheduleForceL1:
         mock_peek.assert_called_once()
 
 
-class TestScheduleForceL2NoChange:
-    @patch("xclaw.core.context.scheduler.take_screenshot")
-    @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_force_l2_runs_full_pipeline(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
-        """force_level=L2 should always run full pipeline."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
-        mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
-        mock_pipeline.return_value = _make_pipeline_result()
-
-        result = schedule({"status": "ok", "action": "type", "text": "a"}, force_level="L2")
-        assert result.level == "L2"
-
-
 class TestEscalationPathCorrectness:
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.peek")
     @patch("xclaw.core.context.scheduler.glance")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_full_escalation_l0_l1_l2(self, mock_pipeline, mock_glance, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """L0→L1→L2 glance fail → L2 full pipeline should have escalation path."""
-        _mock_state(tmp_path, monkeypatch, confidence=0.7)
+    def test_full_escalation_l1_l2_l3(self, mock_pipeline, mock_glance, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """L1→L2 glance fail → L3 full pipeline should have escalation path."""
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
         mock_peek.return_value = PeekResult(
             changed=True, diff_ratio=0.08, change_regions=[(100, 100, 200, 200)],
@@ -199,10 +180,10 @@ class TestEscalationPathCorrectness:
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule({"status": "ok", "action": "click", "x": 1, "y": 2})
-        assert result.level == "L2"
-        assert "L0" in result.escalation_path
+        assert result.level == "L3"
         assert "L1" in result.escalation_path
         assert "L2" in result.escalation_path
+        assert "L3" in result.escalation_path
 
 
 class TestScheduleNoAction:
@@ -210,8 +191,8 @@ class TestScheduleNoAction:
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.run_pipeline")
-    def test_no_action_no_state_forces_l2(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
-        """No state + no action → L2 full pipeline."""
+    def test_no_action_no_state_forces_l3(self, mock_pipeline, mock_screen, tmp_path, monkeypatch):
+        """No state + no action → L3 full pipeline."""
         state_path = tmp_path / ".context_state.json"
         monkeypatch.setattr("xclaw.core.context.state.CONTEXT_STATE_PATH", state_path)
 
@@ -219,29 +200,36 @@ class TestScheduleNoAction:
         mock_pipeline.return_value = _make_pipeline_result()
 
         result = schedule()
-        assert result.level == "L2"
+        assert result.level == "L3"
         mock_pipeline.assert_called_once()
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.peek")
-    def test_no_action_with_state_uses_decision_flow(self, mock_peek, mock_screen, tmp_path, monkeypatch):
-        """Existing state + no action → normal L0/L1 decision flow (no critical action check)."""
-        _mock_state(tmp_path, monkeypatch, confidence=1.0)
+    def test_no_action_with_state_uses_diff(self, mock_peek, mock_screen, tmp_path, monkeypatch):
+        """Existing state + no action → peek decides (no more L0 cache skip)."""
+        _mock_state(tmp_path, monkeypatch)
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
+        mock_peek.return_value = PeekResult(
+            changed=False, diff_ratio=0.003, change_regions=[],
+            screenshot_path="screen.png", elapsed_ms=15,
+        )
 
-        # High confidence + no action → L0 cache hit
         result = schedule()
-        assert result.level == "L0"
-        mock_peek.assert_not_called()
+        assert result.level == "L1"
+        mock_peek.assert_called_once()
 
     @patch("xclaw.core.context.scheduler.take_screenshot")
     @patch("xclaw.core.context.scheduler.peek")
     def test_no_action_does_not_record_action(self, mock_peek, mock_screen, tmp_path, monkeypatch):
         """schedule() with no action_result should not record an action in state."""
-        state = _mock_state(tmp_path, monkeypatch, confidence=1.0)
+        state = _mock_state(tmp_path, monkeypatch)
         original_history_len = len(state.action_history)
 
         mock_screen.return_value = {"image_path": "screen.png", "resolution": [1920, 1080]}
+        mock_peek.return_value = PeekResult(
+            changed=False, diff_ratio=0.003, change_regions=[],
+            screenshot_path="screen.png", elapsed_ms=15,
+        )
 
         schedule()
 

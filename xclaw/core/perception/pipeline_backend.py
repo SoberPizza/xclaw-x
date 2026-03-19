@@ -9,9 +9,13 @@ from typing import Optional
 import numpy as np
 import torch
 
+import logging
+
 from xclaw.config import MODELS_DIR, WEIGHTS_DIR
 from xclaw.platform.gpu import PerceptionConfig
 from xclaw.core.perception.types import TextBox
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineBackend:
@@ -67,22 +71,28 @@ class PipelineBackend:
         if self._config.caption_enabled:
             caption_dir = model_dir / "icon_caption_minicpm"
             if caption_dir.exists():
-                from xclaw.core.perception.minicpm_caption import MiniCPMCaption
+                try:
+                    from xclaw.core.perception.minicpm_caption import MiniCPMCaption
 
-                dtype = (
-                    torch.float16
-                    if self._config.caption_dtype == "float16"
-                    else torch.float32
-                )
-                self._caption = MiniCPMCaption(
-                    model_dir=caption_dir,
-                    device=self._config.caption_device,
-                    dtype=dtype,
-                )
+                    dtype = (
+                        torch.float16
+                        if self._config.caption_dtype == "float16"
+                        else torch.float32
+                    )
+                    self._caption = MiniCPMCaption(
+                        model_dir=caption_dir,
+                        device=self._config.caption_device,
+                        dtype=dtype,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "MiniCPM-V caption load failed, continuing without captions: %s", e
+                    )
+                    self._caption = None
 
         self._models_loaded = True
         elapsed = time.time() - t0
-        print(f"[backend] Models loaded in {elapsed:.1f}s\n{self._config.describe()}")
+        logger.debug("Models loaded in %.1fs\n%s", elapsed, self._config.describe())
 
     def detect_icons(self, image: np.ndarray, conf: float = 0.3) -> list[dict]:
         self.load_models()

@@ -13,7 +13,6 @@ import pytest
 
 from xclaw.core.context.state import ContextState
 from xclaw.core.context.peek import peek
-from xclaw.core.context.predict import predict
 from xclaw.core.context.scroll import analyze_scroll
 from xclaw.core.context.glance import _run_l2, _elements_to_dicts
 
@@ -90,7 +89,7 @@ def real_pair():
 class TestBenchPeek:
     def test_bench_peek_identical(self, identical_images):
         a, b = identical_images
-        state = ContextState(last_screenshot_path=a, confidence=0.7, last_perception_time=time.time())
+        state = ContextState(last_screenshot_path=a, last_perception_time=time.time())
 
         def run():
             peek(state, b)
@@ -100,7 +99,7 @@ class TestBenchPeek:
 
     def test_bench_peek_different(self, real_pair):
         a, b = real_pair
-        state = ContextState(last_screenshot_path=a, confidence=0.7, last_perception_time=time.time())
+        state = ContextState(last_screenshot_path=a, last_perception_time=time.time())
 
         def run():
             peek(state, b)
@@ -110,7 +109,7 @@ class TestBenchPeek:
 
     def test_bench_peek_synthetic_1080p(self, synthetic_1080p_pair):
         a, b = synthetic_1080p_pair
-        state = ContextState(last_screenshot_path=a, confidence=0.7, last_perception_time=time.time())
+        state = ContextState(last_screenshot_path=a, last_perception_time=time.time())
 
         def run():
             peek(state, b)
@@ -152,7 +151,6 @@ class TestBenchStatePersistence:
             last_perception_time=time.time(),
             cached_elements=elements,
             cached_resolution=(1920, 1080),
-            confidence=0.9,
             consecutive_cheap_count=1,
         )
 
@@ -164,22 +162,3 @@ class TestBenchStatePersistence:
         assert statistics.mean(times) < 50, "State save+load should be < 50ms"
 
 
-class TestBenchPredict:
-    def test_bench_predict(self):
-        """predict() 100 times — should be sub-0.1ms per call."""
-        state = ContextState(
-            last_perception_time=time.time() - 1.0,
-            confidence=1.0,
-            last_result_dict={"data": "cached"},
-        )
-        state.record_action("type", {"text": "x"})
-        state.record_action("click", {"x": 10, "y": 20})
-
-        def run():
-            for _ in range(100):
-                predict(state)
-
-        times = _bench(run, iterations=10, label="predict_x100")
-        per_call = statistics.mean(times) / 100
-        print(f"  Per-call: {per_call:.4f}ms")
-        assert per_call < 1.0, "predict() should be < 1ms per call"

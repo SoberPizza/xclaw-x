@@ -2,21 +2,6 @@
 
 ## Perception Commands
 
-### `xclaw init`
-
-Initialize X-Claw: load OmniParser models and verify GPU/CUDA availability.
-
-```json
-{
-  "status": "ok",
-  "message": "X-Claw initialization complete",
-  "components": {
-    "omniparser": "ready",
-    "device": "cuda"
-  }
-}
-```
-
 ### `xclaw look`
 
 Observe the screen. Takes a screenshot, diffs against previous state, and automatically decides parsing depth (L0 cache / L1 pixel-diff / L2 full parse). Returns elements and layout.
@@ -128,3 +113,13 @@ Every action command returns:
 - Cache > 15 seconds → Force L2
 - Critical keys like `enter`/`f5` → Force L2
 - Any level error → Auto-escalate to next level
+
+## Emergency Commands
+
+### `xclaw stop`
+
+**Emergency only.** Force-kill the perception daemon when it is stuck or crashed. Do NOT use this during normal operation — the daemon exits automatically after 300 seconds of idle time.
+
+```json
+{"status": "stopped"}
+```

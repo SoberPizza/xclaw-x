@@ -1,7 +1,5 @@
 """PaddleOCR engine — cross-platform (GPU on Windows, CPU+MKL-DNN on macOS)."""
 
-import platform
-
 import numpy as np
 
 from xclaw.core.perception.types import TextBox
@@ -17,36 +15,42 @@ class OCREngine:
     def __init__(self, use_gpu: bool = False, det_limit: int = 960):
         from paddleocr import PaddleOCR
 
-        is_mac = platform.system() == "Darwin"
-
         self.engine = PaddleOCR(
-            use_angle_cls=True,
-            lang="ch",                           # Chinese + English
-            use_gpu=use_gpu and not is_mac,       # macOS force GPU off
-            show_log=False,
-            use_mp=False,
-            enable_mkldnn=is_mac,                 # macOS enable MKL-DNN
-            det_limit_side_len=det_limit,
-            det_db_score_mode="slow",             # accuracy first
-            rec_batch_num=16,
+            use_textline_orientation=True,
+            lang="ch",
+            text_det_limit_side_len=det_limit,
+            device="cpu" if not use_gpu else "gpu",
         )
 
+        # PaddleX's setup_logging() forces its own colored StreamHandler during
+        # PaddleOCR init.  Strip all handlers so CLI output stays clean JSON.
+        import logging as _logging
+        _pdx = _logging.getLogger("paddlex")
+        _pdx.handlers.clear()
+        _pdx.addHandler(_logging.NullHandler())
+        _pdx.propagate = False
+
     def detect(self, image: np.ndarray, min_confidence: float = 0.6) -> list[TextBox]:
-        results = self.engine.ocr(image, cls=True)
-        if not results or not results[0]:
+        results = list(self.engine.predict(image))
+        if not results:
             return []
 
+        r = results[0]
+        polys = r["dt_polys"]
+        texts = r["rec_texts"]
+        scores = r["rec_scores"]
+
         boxes = []
-        for line in results[0]:
-            polygon, (text, confidence) = line
+        for polygon, text, confidence in zip(polys, texts, scores):
             if confidence < min_confidence:
                 continue
-            xs = [p[0] for p in polygon]
-            ys = [p[1] for p in polygon]
+            poly_list = polygon.tolist() if hasattr(polygon, "tolist") else polygon
+            xs = [p[0] for p in poly_list]
+            ys = [p[1] for p in poly_list]
             boxes.append(TextBox(
                 bbox=(int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))),
                 text=text.strip(),
                 confidence=round(confidence, 3),
-                polygon=polygon,
+                polygon=poly_list,
             ))
         return boxes

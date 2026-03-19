@@ -7,12 +7,7 @@ import os
 import time
 from dataclasses import dataclass, field, asdict
 
-from xclaw.config import CONTEXT_STATE_PATH, CONTEXT_CACHE_TTL, CONTEXT_CRITICAL_KEYS
-
-
-def parse_base_key(key: str) -> str:
-    """Extract the base key from a combo key string (e.g. 'ctrl+enter' → 'enter')."""
-    return key.split("+")[-1] if "+" in key else key
+from xclaw.config import CONTEXT_STATE_PATH, CONTEXT_CACHE_TTL
 
 
 @dataclass
@@ -46,7 +41,6 @@ class ContextState:
     cached_resolution: tuple[int, int] = (0, 0)
     action_history: list[ActionRecord] = field(default_factory=list)
     consecutive_cheap_count: int = 0
-    confidence: float = 0.0
 
     # ── Persistence ──
 
@@ -63,7 +57,6 @@ class ContextState:
                 "cached_resolution": list(self.cached_resolution),
                 "action_history": [a.to_dict() for a in self.action_history],
                 "consecutive_cheap_count": self.consecutive_cheap_count,
-                "confidence": self.confidence,
             }
             tmp = CONTEXT_STATE_PATH.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
@@ -89,7 +82,6 @@ class ContextState:
                     ActionRecord.from_dict(a) for a in data.get("action_history", [])
                 ],
                 consecutive_cheap_count=data.get("consecutive_cheap_count", 0),
-                confidence=data.get("confidence", 0.0),
             )
         except (json.JSONDecodeError, KeyError, TypeError):
             return None
@@ -120,13 +112,10 @@ class ContextState:
         if resolution is not None:
             self.cached_resolution = resolution
 
-        if level in ("L0", "L1"):
+        if level == "L1":
             self.consecutive_cheap_count += 1
         else:
             self.consecutive_cheap_count = 0
-
-        if level in ("L2", "L3"):
-            self.confidence = 1.0
 
     # ── Queries ──
 
@@ -135,18 +124,6 @@ class ContextState:
         if self.last_perception_time is None:
             return True
         return (time.time() - self.last_perception_time) > CONTEXT_CACHE_TTL
-
-    def is_critical_action(self) -> bool:
-        """True if the most recent action is a critical key press."""
-        if not self.action_history:
-            return False
-        last = self.action_history[-1]
-        if last.action == "press":
-            key = last.params.get("key", "").lower()
-            # Handle combo keys like ctrl+enter → check the base key
-            base_key = parse_base_key(key)
-            return base_key in CONTEXT_CRITICAL_KEYS
-        return False
 
     def last_action(self) -> ActionRecord | None:
         """Return the most recent action, or None."""

@@ -31,7 +31,6 @@ class TestContextStatePersistence:
             last_perception_level="L3",
             last_perception_time=1000.0,
             cached_resolution=(1920, 1080),
-            confidence=0.85,
         )
         state.record_action("click", {"x": 100, "y": 200})
         state.save()
@@ -44,7 +43,6 @@ class TestContextStatePersistence:
         assert loaded.last_perception_level == "L3"
         assert loaded.last_perception_time == 1000.0
         assert loaded.cached_resolution == (1920, 1080)
-        assert loaded.confidence == 0.85
         assert len(loaded.action_history) == 1
         assert loaded.action_history[0].action == "click"
 
@@ -72,7 +70,6 @@ class TestContextStatePersistence:
             "cached_resolution": None,
             "action_history": [],
             "consecutive_cheap_count": 0,
-            "confidence": 0.0,
         }
         state_path.write_text(json.dumps(data))
         loaded = ContextState.load()
@@ -98,17 +95,16 @@ class TestRecordAction:
 
 
 class TestRecordPerception:
-    def test_l3_resets_confidence(self):
-        state = ContextState(confidence=0.3, consecutive_cheap_count=3)
+    def test_l3_resets_counter(self):
+        state = ContextState(consecutive_cheap_count=3)
         state.record_perception("L3", result_dict={"test": True})
-        assert state.confidence == 1.0
         assert state.consecutive_cheap_count == 0
         assert state.last_perception_level == "L3"
         assert state.last_result_dict == {"test": True}
 
     def test_cheap_increments_counter(self):
         state = ContextState(consecutive_cheap_count=0)
-        state.record_perception("L0")
+        state.record_perception("L1")
         assert state.consecutive_cheap_count == 1
         state.record_perception("L1")
         assert state.consecutive_cheap_count == 2
@@ -131,34 +127,3 @@ class TestIsStale:
     def test_old_is_stale(self):
         state = ContextState(last_perception_time=time.time() - 20.0)
         assert state.is_stale()
-
-
-class TestIsCriticalAction:
-    def test_no_history(self):
-        state = ContextState()
-        assert not state.is_critical_action()
-
-    def test_enter_is_critical(self):
-        state = ContextState()
-        state.record_action("press", {"key": "enter"})
-        assert state.is_critical_action()
-
-    def test_f5_is_critical(self):
-        state = ContextState()
-        state.record_action("press", {"key": "f5"})
-        assert state.is_critical_action()
-
-    def test_ctrl_enter_is_critical(self):
-        state = ContextState()
-        state.record_action("press", {"key": "ctrl+enter"})
-        assert state.is_critical_action()
-
-    def test_tab_not_critical(self):
-        state = ContextState()
-        state.record_action("press", {"key": "tab"})
-        assert not state.is_critical_action()
-
-    def test_click_not_critical(self):
-        state = ContextState()
-        state.record_action("click", {"x": 100, "y": 200})
-        assert not state.is_critical_action()

@@ -174,14 +174,13 @@ scripts/
   - 运行时热切换（`switch()`）
   - 调用统计（call_count / total_ms / error_count）
 - `xclaw look` 首次调用自动拉起 daemon
-- `xclaw daemon-status` / `xclaw daemon-stop` 管理生命周期
-- `xclaw daemon-backends` / `xclaw daemon-switch-backend` / `xclaw daemon-backend-status` 管理感知后端
+- `xclaw stop` 紧急终结 daemon（仅异常时使用，正常情况空闲自动退出）
 - 空闲 300 秒自动退出
 - PID 文件：`~/.xclaw/daemon.pid`
 
 ## 模型与 OmniParser 注意事项
 
-- OmniParser 源码位于 `OmniParser/` 目录，**不要修改其中的文件**。
+- OmniParser 源码位于 `OmniParser/` 目录。
 - 图标描述使用 MiniCPM-V 2.0（`openbmb/MiniCPM-V-2`），无 transformers 版本上限约束。
 - 模型存放在 `models/`（首选）或 `weights/`（向后兼容）目录，通过 `huggingface-hub` 下载。
 
@@ -223,5 +222,5 @@ python scripts/build_installer.py --platform windows  # → dist/XClaw-x.x.x-Set
 1. 双击安装包（.pkg / .exe）
 2. 首次启动自动执行 `uv sync` 安装 Python + 依赖（~1.5GB）
 3. Tkinter GUI 下载模型（~1.3GB）
-4. `xclaw init` 校验权限和模型加载
+4. `xclaw look` 验证感知管线正常工作
 5. 完成

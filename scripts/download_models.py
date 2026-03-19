@@ -10,9 +10,10 @@ Win:   uv run --extra win python scripts/download_models.py
 import hashlib
 import os
 import platform
-import subprocess
 import sys
 from pathlib import Path
+
+from huggingface_hub import hf_hub_download, snapshot_download
 
 # Uncomment for Chinese users:
 # os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
@@ -46,18 +47,18 @@ def _sha256_prefix(path: Path, prefix_len: int = 16) -> str:
 
 
 def _download_with_retry(
-    cmd: list[str],
+    download_fn,
     max_retries: int = 3,
     label: str = "",
 ) -> None:
-    """Run a subprocess command with exponential-backoff retry."""
+    """Call *download_fn* with exponential-backoff retry."""
     import time
 
     for attempt in range(max_retries):
         try:
-            subprocess.run(cmd, check=True)
+            download_fn()
             return
-        except subprocess.CalledProcessError:
+        except Exception:
             if attempt == max_retries - 1:
                 raise
             wait = (2 ** attempt) * 2  # 2s, 4s, 8s
@@ -84,10 +85,9 @@ def download_omniparser(dest_dir: Path, progress_callback=None) -> bool:
             print(f"  ↓ {f}")
 
         _download_with_retry(
-            [
-                sys.executable, "-m", "huggingface_hub", "download",
-                OMNIPARSER_REPO, f, "--local-dir", str(dest_dir),
-            ],
+            lambda f=f: hf_hub_download(
+                OMNIPARSER_REPO, f, local_dir=str(dest_dir),
+            ),
             label=f,
         )
 
@@ -100,10 +100,9 @@ def download_omniparser(dest_dir: Path, progress_callback=None) -> bool:
 
     minicpm_dir = dest_dir / "icon_caption_minicpm"
     _download_with_retry(
-        [
-            sys.executable, "-m", "huggingface_hub", "download",
-            MINICPM_REPO, "--local-dir", str(minicpm_dir),
-        ],
+        lambda: snapshot_download(
+            MINICPM_REPO, local_dir=str(minicpm_dir),
+        ),
         label="MiniCPM-V-2",
     )
 
@@ -116,7 +115,7 @@ def init_paddleocr() -> bool:
     """Trigger PaddleOCR first-run model download. Returns True on success."""
     try:
         from paddleocr import PaddleOCR
-        PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False, show_log=True)
+        PaddleOCR(use_textline_orientation=True, lang="ch", device="cpu")
         return True
     except ImportError:
         print("  paddleocr not installed. Run: uv sync --extra mac (or --extra win)")

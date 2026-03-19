@@ -117,8 +117,51 @@ def init_paddleocr() -> bool:
         from paddleocr import PaddleOCR
         PaddleOCR(use_textline_orientation=True, lang="ch", device="cpu")
         return True
-    except ImportError:
-        print("  paddleocr not installed. Run: uv sync --extra mac (or --extra win)")
+    except ImportError as e:
+        print(f"  paddleocr init failed: {e}")
+        print("  Run: uv sync --extra mac (or --extra win)")
+        return False
+    except Exception as e:
+        print(f"  paddleocr init failed: {e}")
+        return False
+
+
+def export_yolo_onnx(model_dir: Path) -> bool:
+    """Export YOLO .pt to .onnx if not already present. Returns True on success."""
+    pt_path = model_dir / "icon_detect" / "model.pt"
+    onnx_path = model_dir / "icon_detect" / "model.onnx"
+
+    if onnx_path.exists():
+        mb = onnx_path.stat().st_size / (1024 * 1024)
+        print(f"  ✅ ONNX already exists: {mb:.1f} MB")
+        return True
+
+    if not pt_path.exists():
+        print("  ⚠ YOLO .pt not found, skipping ONNX export")
+        return False
+
+    try:
+        from ultralytics import YOLO
+
+        print("  Exporting .pt → .onnx ...")
+        model = YOLO(str(pt_path))
+        model.export(format="onnx", imgsz=640, simplify=True, opset=17)
+
+        # ultralytics may produce the file next to .pt with a different name
+        if not onnx_path.exists():
+            exported = list(pt_path.parent.glob("*.onnx"))
+            if exported:
+                exported[0].rename(onnx_path)
+
+        if onnx_path.exists():
+            mb = onnx_path.stat().st_size / (1024 * 1024)
+            print(f"  ✅ ONNX export complete: {mb:.1f} MB")
+            return True
+        else:
+            print("  ⚠ ONNX export produced no file")
+            return False
+    except Exception as e:
+        print(f"  ⚠ ONNX export failed: {e}")
         return False
 
 
@@ -130,6 +173,7 @@ def verify_models(model_dir: Path) -> bool:
     """
     checks = {
         "YOLO": model_dir / "icon_detect" / "model.pt",
+        "YOLO ONNX": model_dir / "icon_detect" / "model.onnx",
         "MiniCPM-V": model_dir / "icon_caption_minicpm" / "config.json",
     }
     all_ok = True
@@ -176,12 +220,16 @@ def main():
     print(f"\n📦 OmniParser V2 (~1.12 GB)")
     download_omniparser(MODELS)
 
-    # 2. PaddleOCR
+    # 2. YOLO ONNX export
+    print("\n📦 YOLO ONNX export (recommended backend)")
+    export_yolo_onnx(MODELS)
+
+    # 3. PaddleOCR
     print("\n📦 PaddleOCR v4 (auto-download on first use)")
     if init_paddleocr():
         print("  ✅ PaddleOCR ready")
 
-    # 3. Verify
+    # 4. Verify
     print("\n🔍 Verification:")
     if verify_models(MODELS):
         print("\n✅ All models ready!")

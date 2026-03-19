@@ -17,6 +17,7 @@ dependencies = [
     "timm>=1.0.0",
     "supervision>=0.25.0",
     "onnxruntime>=1.17.0",
+    "ultralytics>=8.1.0",
     "paddleocr>=2.8.0",
 
     # ── 截屏 + 图像（跨平台） ──
@@ -35,7 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 win = [
     "onnxruntime-gpu>=1.17.0",
-    "paddlepaddle-gpu>=2.6.0",
+    "paddlepaddle-gpu>=3.0.0; sys_platform == 'win32'",
     "pywin32>=306",
 ]
 mac = [
@@ -63,9 +64,15 @@ name = "pytorch-cu121"
 url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
+[[tool.uv.index]]
+name = "paddle-cu126"
+url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+explicit = true
+
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu121", marker = "sys_platform != 'darwin'" }]
 torchvision = [{ index = "pytorch-cu121", marker = "sys_platform != 'darwin'" }]
+paddlepaddle-gpu = [{ index = "paddle-cu126", marker = "sys_platform == 'win32'" }]
 
 [tool.pytest.ini_options]
 markers = [

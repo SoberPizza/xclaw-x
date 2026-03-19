@@ -66,25 +66,39 @@ def main():
 
 @main.command()
 def init():
-    """Initialize X-Claw: verify models and dependencies."""
+    """Initialize X-Claw: verify models, permissions, and dependencies."""
     import sys
-    from xclaw.core.perception.omniparser import get_parser
+    import platform
 
     try:
         click.echo("Initializing X-Claw...", err=True)
-        click.echo("Loading OmniParser models (this may take a while on first run)...", err=True)
 
-        parser = get_parser(suppress_logs=False)
+        # macOS permission check
+        if platform.system() == "Darwin":
+            from xclaw.platform.permissions import check_permissions
+            if not check_permissions():
+                click.echo("⚠ Fix permissions above, then re-run `xclaw init`", err=True)
+                sys.exit(1)
 
-        click.echo("✓ OmniParser initialized successfully", err=True)
+        click.echo("Loading perception models (this may take a while on first run)...", err=True)
+
+        from xclaw.core.perception.engine import PerceptionEngine
+        engine = PerceptionEngine.get_instance()
+        engine._ensure_models()
+
+        click.echo("✓ Perception engine initialized successfully", err=True)
         click.echo("✓ All models loaded", err=True)
 
+        from xclaw.config import PLATFORM
         _output({
             "status": "ok",
             "message": "X-Claw initialization complete",
             "components": {
-                "omniparser": "ready",
-                "device": "cuda" if __import__('torch').cuda.is_available() else "cpu",
+                "perception_engine": "ready",
+                "device": PLATFORM.gpu_backend,
+                "platform": PLATFORM.system,
+                "arch": PLATFORM.arch,
+                "memory_gb": PLATFORM.memory_gb,
             }
         })
     except Exception as e:
@@ -173,6 +187,31 @@ def wait(seconds):
     time.sleep(seconds)
     result = {"status": "ok", "action": "wait", "seconds": seconds}
     _output(_action_with_look(result))
+
+
+# ── Daemon ────────────────────────────────────────────────────────
+
+
+@main.command("daemon-status")
+def daemon_status():
+    """Check if the perception daemon is running."""
+    from xclaw.core.daemon import is_daemon_alive
+    alive = is_daemon_alive()
+    _output({"status": "alive" if alive else "stopped"})
+
+
+@main.command("daemon-stop")
+def daemon_stop():
+    """Stop the perception daemon."""
+    from xclaw.core.daemon import is_daemon_alive, request_perception
+    if is_daemon_alive():
+        try:
+            request_perception({"command": "shutdown"})
+        except Exception:
+            pass
+        _output({"status": "stopped"})
+    else:
+        _output({"status": "not_running"})
 
 
 if __name__ == "__main__":

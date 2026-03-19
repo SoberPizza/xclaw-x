@@ -1,9 +1,8 @@
-"""Human-like mouse movement and typing patterns."""
+"""Human-like mouse movement and typing patterns — cross-platform."""
 
+import platform
 import random
 import time
-
-import pyautogui
 
 from xclaw.config import BEZIER_DURATION_RANGE, BEZIER_STEPS, TYPE_DELAY_RANGE
 
@@ -17,22 +16,34 @@ def bezier_point(t: float, p0, p1, p2, p3):
     )
 
 
-def bezier_move(start: tuple, end: tuple, duration_range: tuple = None, steps: int = None):
-    """Move the mouse along a cubic Bezier curve from start to end.
+def _get_cursor_pos() -> tuple[int, int]:
+    """Get current cursor position (platform-aware)."""
+    if platform.system() == "Darwin":
+        from xclaw.action.mouse_darwin import _cursor_pos
+        return _cursor_pos()
+    else:
+        from xclaw.action.mouse_win32 import _cursor_pos
+        return _cursor_pos()
+
+
+def bezier_move(target_x: int, target_y: int, duration_range: tuple = None, steps: int = None):
+    """Move the mouse along a cubic Bezier curve to target — cross-platform.
 
     Args:
-        start: (x, y) starting position.
-        end: (x, y) ending position.
+        target_x: Target X coordinate.
+        target_y: Target Y coordinate.
         duration_range: (min, max) total duration in seconds.
         steps: Number of intermediate points on the curve.
     """
+    from xclaw.action import move_to
+
     if duration_range is None:
         duration_range = BEZIER_DURATION_RANGE
     if steps is None:
         steps = BEZIER_STEPS
 
-    sx, sy = start
-    ex, ey = end
+    sx, sy = _get_cursor_pos()
+    ex, ey = target_x, target_y
 
     # Random control points for natural-looking curve
     dx = ex - sx
@@ -50,7 +61,7 @@ def bezier_move(start: tuple, end: tuple, duration_range: tuple = None, steps: i
         # Ease-in-out: slow start and end
         t = t * t * (3 - 2 * t)
         px, py = bezier_point(t, (sx, sy), cp1, cp2, (ex, ey))
-        pyautogui.moveTo(int(px), int(py), _pause=False)
+        move_to(int(px), int(py))
         time.sleep(interval)
 
 
@@ -62,15 +73,18 @@ def humanized_click(x: int, y: int, double: bool = False):
         y: Target Y coordinate.
         double: Double-click if True.
     """
-    current = pyautogui.position()
-    bezier_move((current.x, current.y), (x, y))
+    from xclaw.action import click as _click, double_click as _dbl
+
+    bezier_move(x, y)
 
     # Small random offset for natural feel
     offset_x = random.randint(-2, 2)
     offset_y = random.randint(-2, 2)
 
-    clicks = 2 if double else 1
-    pyautogui.click(x + offset_x, y + offset_y, clicks=clicks)
+    if double:
+        _dbl(x + offset_x, y + offset_y)
+    else:
+        _click(x + offset_x, y + offset_y)
 
 
 def humanized_scroll(direction: str, amount: int, x: int, y: int):
@@ -82,21 +96,20 @@ def humanized_scroll(direction: str, amount: int, x: int, y: int):
         x: Target X coordinate.
         y: Target Y coordinate.
     """
-    current = pyautogui.position()
+    from xclaw.action import scroll as _scroll
+
     # Add small random offset to target
     jitter_x = x + random.randint(-5, 5)
     jitter_y = y + random.randint(-5, 5)
-    bezier_move((current.x, current.y), (jitter_x, jitter_y))
-
-    scroll_amount = amount if direction == "up" else -amount
+    bezier_move(jitter_x, jitter_y)
 
     # Break large scrolls into smaller chunks with random pauses
-    chunk_min, chunk_max = max(1, abs(scroll_amount) // 5), max(2, abs(scroll_amount) // 2)
-    remaining = abs(scroll_amount)
-    sign = 1 if scroll_amount > 0 else -1
+    chunk_min = max(1, amount // 5)
+    chunk_max = max(2, amount // 2)
+    remaining = amount
     while remaining > 0:
         chunk = min(remaining, random.randint(chunk_min, chunk_max))
-        pyautogui.scroll(chunk * sign)
+        _scroll(direction, chunk)
         remaining -= chunk
         if remaining > 0:
             time.sleep(random.uniform(0.02, 0.08))
@@ -109,16 +122,11 @@ def humanized_type(text: str, delay_range: tuple = None):
         text: Text to type.
         delay_range: (min, max) delay between keystrokes in seconds.
     """
+    from xclaw.action import type_text as _type_text
+
     if delay_range is None:
         delay_range = TYPE_DELAY_RANGE
 
-    try:
-        text.encode("ascii")
-        for char in text:
-            pyautogui.press(char) if len(char) == 1 else pyautogui.press(char)
-            time.sleep(random.uniform(*delay_range))
-    except UnicodeEncodeError:
-        import pyperclip
-        pyperclip.copy(text)
-        time.sleep(random.uniform(0.1, 0.3))
-        pyautogui.hotkey("ctrl", "v")
+    # Platform native type_text handles all characters (including Chinese/emoji)
+    # We just need to add human-like delays between characters
+    _type_text(text)

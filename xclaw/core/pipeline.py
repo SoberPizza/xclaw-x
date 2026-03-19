@@ -116,22 +116,67 @@ def run_pipeline(
     # ── L1: Perception ──
     t0 = time.perf_counter_ns()
 
-    from xclaw.core.perception.omniparser import ScreenParser
-    from xclaw.core.perception.merger import merge_elements
+    from xclaw.core.perception.engine import PerceptionEngine
 
-    parser = ScreenParser()
-    raw_elements, resolution = parser.parse_raw(image_path)
-    elements = merge_elements(raw_elements)
+    engine = PerceptionEngine.get_instance()
+
+    # Use the engine's full_look which handles YOLO + OCR + Florence-2
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(image_path)
+    w, h = img.size
+    screenshot = np.array(img)
+
+    # Run detection + OCR + fusion
+    engine._ensure_models()
+
+    icon_boxes = engine._detector.detect(screenshot)
+    text_boxes = engine._ocr.detect(screenshot)
+
+    from xclaw.core.perception.merger import fuse_results, merge_elements
+
+    fused, icons_needing_caption = fuse_results(icon_boxes, text_boxes)
+
+    # Conditional Florence-2
+    if (
+        engine.config.florence2_enabled
+        and engine._caption is not None
+        and icons_needing_caption
+    ):
+        captions = engine._caption.batch_caption(screenshot, icons_needing_caption)
+        for elem, cap in zip(icons_needing_caption, captions):
+            elem["content"] = cap
+
+    # Convert fused dicts to RawElement
+    elements = []
+    for i, elem in enumerate(fused):
+        bbox = elem["bbox"]
+        if isinstance(bbox, list):
+            bbox = tuple(bbox)
+        cx = (bbox[0] + bbox[2]) // 2
+        cy = (bbox[1] + bbox[3]) // 2
+        elements.append(RawElement(
+            id=i,
+            type=elem.get("type", "unknown"),
+            bbox=bbox,
+            center=(cx, cy),
+            content=elem.get("content", ""),
+            confidence=elem.get("confidence", 1.0),
+        ))
+
+    # Apply merge dedup
+    elements = merge_elements(elements)
 
     if plugin:
-        elements = plugin.enhance_anchors(elements, resolution)
+        elements = plugin.enhance_anchors(elements, (w, h))
 
     timing["l1_ms"] = (time.perf_counter_ns() - t0) // 1_000_000
 
     if skip_l2:
         return PipelineResult(
             elements=elements,
-            resolution=resolution,
+            resolution=(w, h),
             image_path=image_path,
             plugin_name=plugin.__class__.__name__ if plugin else None,
             timing=timing,
@@ -143,14 +188,14 @@ def run_pipeline(
     from xclaw.core.spatial.column_detector import detect_columns
     from xclaw.core.spatial.reading_order import sort_reading_order
 
-    columns = detect_columns(elements, resolution=resolution)
+    columns = detect_columns(elements, resolution=(w, h))
     reading_order = sort_reading_order(elements, columns)
 
     timing["l2_ms"] = (time.perf_counter_ns() - t1) // 1_000_000
 
     result = PipelineResult(
         elements=elements,
-        resolution=resolution,
+        resolution=(w, h),
         image_path=image_path,
         columns=columns,
         reading_order=reading_order,

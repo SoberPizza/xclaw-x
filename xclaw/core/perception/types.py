@@ -1,4 +1,4 @@
-"""L1 raw element types."""
+"""L1 raw element and text box types."""
 
 from dataclasses import dataclass
 
@@ -18,3 +18,13 @@ class RawElement:
     content: str
     confidence: float = 1.0
     source: str = ""  # OmniParser source tag
+
+
+@dataclass(frozen=True, slots=True)
+class TextBox:
+    """A text region detected by OCR."""
+
+    bbox: tuple[int, int, int, int]  # (x1, y1, x2, y2) pixels
+    text: str
+    confidence: float
+    polygon: list | None = None

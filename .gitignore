@@ -9,6 +9,7 @@ wheels/
 .pytest_cache/
 OmniParser/
 weights/
+models/
 
 # Virtual environments
 .venv

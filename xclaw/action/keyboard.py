@@ -1,4 +1,4 @@
-import pyautogui
+"""Type text and press keys — delegates to platform-native backend."""
 
 from xclaw.config import HUMANIZE
 
@@ -16,31 +16,32 @@ def type_text(text: str) -> dict:
         from xclaw.action.humanize import humanized_type
         humanized_type(text)
     else:
-        try:
-            text.encode("ascii")
-            pyautogui.write(text, interval=0.02)
-        except UnicodeEncodeError:
-            import pyperclip
-            pyperclip.copy(text)
-            pyautogui.hotkey("ctrl", "v")
+        from xclaw.action import type_text as _type_text
+        _type_text(text)
 
     return {"status": "ok", "action": "type", "text": text}
 
 
 def press_key(key: str) -> dict:
-    """Press a single key.
+    """Press a single key or key combination.
 
     Args:
-        key: Key name (e.g. 'enter', 'tab', 'escape', 'backspace').
+        key: Key name (e.g. 'enter', 'tab', 'escape', 'backspace')
+             or combo (e.g. 'cmd+c', 'ctrl+shift+s').
 
     Returns:
         {"status": "ok", "action": "press", "key": key}
     """
     if HUMANIZE:
-        import random, time as _time
+        import random
+        import time as _time
         _time.sleep(random.uniform(0.03, 0.12))
+
+    from xclaw.action import hotkey as _hotkey
+
     if "+" in key:
-        pyautogui.hotkey(*key.split("+"))
+        _hotkey(key)
     else:
-        pyautogui.press(key)
+        _hotkey(key)  # single key works as hotkey with no modifiers
+
     return {"status": "ok", "action": "press", "key": key}

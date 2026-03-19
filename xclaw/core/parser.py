@@ -1,3 +1,3 @@
-"""Backward-compatible shim — imports ScreenParser from the new perception subpackage."""
+"""Backward-compatible shim — imports PerceptionEngine from the new perception subpackage."""
 
-from xclaw.core.perception.omniparser import ScreenParser  # noqa: F401
+from xclaw.core.perception.engine import PerceptionEngine  # noqa: F401

@@ -135,7 +135,7 @@ class TestSchedulerL2MinorChange:
 
         with patch("xclaw.core.context.glance.run_pipeline") as mock_rp, \
              patch("xclaw.core.perception.merger.merge_elements", side_effect=lambda x: x), \
-             patch("xclaw.core.perception.omniparser.ScreenParser"):
+             patch("xclaw.core.perception.omniparser.OmniDetector"):
             result = schedule({"status": "ok", "action": "click", "x": 300, "y": 250})
 
         assert result.level == "L2"

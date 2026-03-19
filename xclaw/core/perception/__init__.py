@@ -1,1 +1,1 @@
-"""L1 perception layer — OmniParser感知 + 元素合并。"""
+"""L1 perception layer — YOLO detection + PaddleOCR + Florence-2 caption."""

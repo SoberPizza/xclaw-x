@@ -84,7 +84,7 @@ def _crop_and_parse(
         region: (x1, y1, x2, y2) change region.
         resolution: (width, height) of full screenshot.
         margin: Pixel margin to add around the region.
-        parser: Optional ScreenParser instance to reuse across calls.
+        parser: Optional PerceptionEngine instance to reuse across calls.
 
     Returns:
         List of RawElement with global coordinates.
@@ -114,9 +114,30 @@ def _crop_and_parse(
     try:
         cv2.imwrite(crop_path, crop)
         if parser is None:
-            from xclaw.core.perception.omniparser import ScreenParser
-            parser = ScreenParser()
-        raw_elements, _ = parser.parse_raw(crop_path)
+            from xclaw.core.perception.engine import PerceptionEngine
+            parser = PerceptionEngine.get_instance()
+        # Use engine to detect on the crop image
+        from PIL import Image
+        import numpy as np
+        crop_img = np.array(Image.open(crop_path))
+        parser._ensure_models()
+        icon_boxes = parser._detector.detect(crop_img)
+        text_boxes = parser._ocr.detect(crop_img)
+        from xclaw.core.perception.merger import fuse_results
+        fused, _ = fuse_results(icon_boxes, text_boxes)
+        raw_elements = []
+        for idx, elem in enumerate(fused):
+            bbox = elem["bbox"]
+            if isinstance(bbox, list):
+                bbox = tuple(bbox)
+            cx = (bbox[0] + bbox[2]) // 2
+            cy = (bbox[1] + bbox[3]) // 2
+            raw_elements.append(RawElement(
+                id=idx, type=elem.get("type", "unknown"),
+                bbox=bbox, center=(cx, cy),
+                content=elem.get("content", ""),
+                confidence=elem.get("confidence", 1.0),
+            ))
     finally:
         if os.path.exists(crop_path):
             os.unlink(crop_path)
@@ -241,9 +262,9 @@ def glance(
             elapsed_ms=elapsed,
         )
 
-    # Parse each changed region (reuse a single parser instance)
-    from xclaw.core.perception.omniparser import ScreenParser
-    parser = ScreenParser()
+    # Parse each changed region (reuse engine singleton)
+    from xclaw.core.perception.engine import PerceptionEngine
+    parser = PerceptionEngine.get_instance()
     new_elements: list[RawElement] = []
     for region in change_regions:
         parsed = _crop_and_parse(screenshot_path, region, resolution, parser=parser)

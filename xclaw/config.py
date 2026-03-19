@@ -58,3 +58,11 @@ CONTEXT_CONFIDENCE_L0 = 0.8                 # predict 置信度阈值: L0
 CONTEXT_CONFIDENCE_L1 = 0.5                 # predict 置信度阈值: L1
 CONTEXT_CONFIDENCE_L2 = 0.3                 # predict 置信度阈值: L2
 CONTEXT_POST_ACTION_DELAY = 0.15             # 操作后截屏前等待秒数（等待视觉反馈）
+
+# ── 平台适配 ──
+from xclaw.platform import PLATFORM, PERCEPTION_CONFIG  # noqa: E402
+
+# 模型目录（新旧兼容）
+MODELS_DIR = PROJECT_ROOT / "models"
+if not (MODELS_DIR / "icon_detect").exists():
+    MODELS_DIR = WEIGHTS_DIR  # fallback to weights/

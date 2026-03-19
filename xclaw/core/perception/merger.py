@@ -87,3 +87,53 @@ def merge_elements(
         )
 
     return result
+
+
+def fuse_results(icon_boxes: list[dict], text_boxes) -> tuple[list[dict], list[dict]]:
+    """Fuse YOLO icon detections and OCR text boxes.
+
+    Returns:
+        (merged_elements, icons_needing_caption)
+        - merged_elements: all elements with type/bbox/content
+        - icons_needing_caption: icon elements without text overlap
+    """
+    merged = []
+    icons_needing_caption = []
+
+    # Convert text_boxes to dicts
+    text_dicts = []
+    for tb in text_boxes:
+        text_dicts.append({
+            "type": "text",
+            "bbox": tb.bbox if isinstance(tb.bbox, tuple) else tuple(tb.bbox),
+            "content": tb.text if hasattr(tb, 'text') else tb.get("text", ""),
+            "confidence": tb.confidence if hasattr(tb, 'confidence') else tb.get("confidence", 1.0),
+        })
+
+    # Add all text boxes
+    for td in text_dicts:
+        merged.append(td)
+
+    # Process icon boxes: check text overlap
+    for icon in icon_boxes:
+        icon_bbox = icon["bbox"]
+        has_text_overlap = False
+
+        for td in text_dicts:
+            iou = box_iou(icon_bbox, td["bbox"])
+            if iou > 0.3:
+                has_text_overlap = True
+                break
+
+        elem = {
+            "type": "icon",
+            "bbox": icon_bbox,
+            "content": "",
+            "confidence": icon.get("confidence", 1.0),
+        }
+        merged.append(elem)
+
+        if not has_text_overlap:
+            icons_needing_caption.append(elem)
+
+    return merged, icons_needing_caption

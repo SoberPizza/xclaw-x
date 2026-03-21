@@ -1,10 +1,20 @@
 # X-Claw Command Reference
 
-## Perception Commands
+All commands output JSON to stdout. Use `--timing` flag on any command to print timing breakdown to stderr.
+
+## Perception
 
 ### `xclaw look`
 
-Observe the screen. Takes a screenshot, diffs against previous state, and automatically decides parsing depth (L0 cache / L1 pixel-diff / L2 full parse). Returns elements and layout.
+Observe the screen. Screenshots, diffs against previous state, and auto-decides parsing depth:
+
+| Level | Trigger | What happens |
+|-------|---------|--------------|
+| L1 | diff < 1% | Return cached elements (instant) |
+| L2 | 1% ≤ diff < 15% | Incremental parse on changed regions only |
+| L3 | diff ≥ 15% or first run | Full pipeline: YOLO + OCR + SigLIP 2 |
+
+Auto-escalation: consecutive cheap (L1) > 4 times → force L3. Cache > 15s → force L3.
 
 ```json
 {
@@ -19,114 +29,100 @@ Observe the screen. Takes a screenshot, diffs against previous state, and automa
   },
   "elements": [
     {"id": 0, "type": "text", "bbox": [10,20,200,40], "center": [105,30], "content": "File", "col": 0},
-    {"id": 1, "type": "icon", "bbox": [210,20,240,40], "center": [225,30], "content": "menu icon", "col": 0}
+    {"id": 1, "type": "icon", "bbox": [210,20,240,40], "center": [225,30], "content": "close", "col": 0}
   ],
   "timing": {"l1_ms": 800, "l2_ms": 1},
-  "_meta": {
-    "level": "L2",
-    "changed": true,
-    "diff_ratio": 0.35,
-    "elapsed_ms": 801
-  }
+  "_meta": {"level": "L3", "changed": true, "diff_ratio": 0.35, "elapsed_ms": 801}
 }
 ```
 
-## Action Commands
+## Actions
 
-All action commands automatically observe the screen after execution and return `{action, perception, _meta}`.
-
-### `xclaw click <x> <y> [--double]`
-
-Click at screen coordinates. `--double` performs a double-click.
-
-### `xclaw type <text>`
-
-Type text at the cursor position. Supports Chinese characters (automatically uses clipboard).
-
-### `xclaw press <key>`
-
-Press a single key or combination. Common keys: `enter`, `tab`, `escape`, `backspace`, `space`, `delete`.
-Combination key examples: `ctrl+a`, `alt+f4`, `ctrl+c`.
-
-### `xclaw scroll <up|down> <amount> [--x X] [--y Y]`
-
-Scroll the mouse wheel.
-
-**Parameters:**
-
-- `amount`: Number of scroll units (pixel-level scrolling, **recommended minimum: 500** for noticeable effect)
-- `--x`, `--y`: Optional coordinates to position mouse before scrolling (defaults: screen center)
-
-**Scroll Amount Guide:**
-| Amount | Visual Effect |
-|--------|---------------|
-| 5-100 | Barely perceptible |
-| 100-300 | Light scroll (a few lines) |
-| **500+** | **Recommended - clear visible scroll** |
-| 1000+ | Large scroll (major page movement) |
-
-### `xclaw wait <seconds>`
-
-Wait for the specified number of seconds, then observe the screen.
-
-### Action Response Format
-
-Every action command returns:
+All action commands automatically observe the screen after execution. Response format:
 
 ```json
 {
-  "action": {
-    "status": "ok",
-    "action": "click",
-    "x": 500,
-    "y": 300
-  },
-  "perception": {
-    "layout": {...},
-    "elements": [...],
-    "timing": {...}
-  },
-  "_meta": {
-    "level": "L2",
-    "changed": true,
-    "diff_ratio": 0.08,
-    "elapsed_ms": 400
-  }
+  "action": {"status": "ok", "action": "<command>", ...params},
+  "perception": {"layout": {...}, "elements": [...]},
+  "_meta": {"level": "L2", "changed": true, "diff_ratio": 0.08, "elapsed_ms": 400}
 }
 ```
 
-### `_meta` Field Reference
+### `xclaw click <x> <y> [--double]`
 
-| Field | Description |
-|-------|-------------|
-| `level` | Perception level used: L0 (cache), L1 (pixel-diff), L2 (full parse) |
-| `changed` | Whether the screen changed since last observation |
-| `diff_ratio` | Ratio of changed pixels (0-1) |
-| `elapsed_ms` | Perception time in milliseconds |
+Click at screen coordinates. Use `--double` for double-click. Coordinates must come from an element's `center` field.
 
-### Auto-escalation Rules
+### `xclaw type <text>`
 
-- Consecutive L0/L1 > 4 times → Force L2
-- Cache > 15 seconds → Force L2
-- Critical keys like `enter`/`f5` → Force L2
-- Any level error → Auto-escalate to next level
+Type text at the current cursor position. CJK characters are automatically handled via clipboard (Cmd+V).
 
-## Server Command
+### `xclaw press <key>`
+
+Press a key or key combination. The key must include at least one non-modifier key.
+
+**Single keys:** `enter`, `tab`, `escape`, `backspace`, `space`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1`-`f12`, `a`-`z`, `0`-`9`
+
+**Modifiers:** `cmd`/`command`, `ctrl`/`control`, `alt`/`option`, `shift`, `fn`
+
+**Combos (use `+`):**
+```
+xclaw press cmd+a          # Select all
+xclaw press cmd+c          # Copy
+xclaw press cmd+v          # Paste
+xclaw press cmd+t          # New tab
+xclaw press cmd+w          # Close tab
+xclaw press cmd+l          # Focus address bar
+xclaw press cmd+r          # Refresh page
+xclaw press cmd+f          # Find
+xclaw press ctrl+tab       # Next tab
+xclaw press cmd+shift+]    # Next tab (Safari/Chrome)
+xclaw press alt+f4         # Close window (Windows)
+```
+
+### `xclaw scroll <up|down> <amount> [--x X] [--y Y]`
+
+Scroll the mouse wheel at optional coordinates (default: screen center).
+
+| Amount | Effect |
+|--------|--------|
+| < 100 | Barely visible |
+| 100-300 | A few lines |
+| **500+** | **Recommended — clearly visible** |
+| 1000+ | Large page jump |
+
+### `xclaw wait <seconds>`
+
+Wait, then observe the screen. Use after actions that trigger loading (page navigation, form submission, animations).
+
+## Server
 
 ### `xclaw serve`
 
-Start a long-running stdio JSON-line server. Models are loaded once at startup and kept in memory.
-
-**Protocol:**
+Long-running stdio JSON-line server. Models loaded once at startup.
 
 ```
-← {"status": "ready", "version": "0.5.0"}     # startup complete
-→ {"command": "look"}                           # perception
+← {"status": "ready", "version": "0.5.0"}
+→ {"command": "look"}
 ← {"status": "ok", "elements": [...], "_meta": {...}}
-→ {"command": "click", "x": 100, "y": 200}     # action + perception
+→ {"command": "click", "x": 100, "y": 200}
+← {"status": "ok", "action": {...}, "perception": {...}}
+→ {"command": "type", "text": "hello"}
+← {"status": "ok", "action": {...}, "perception": {...}}
+→ {"command": "press", "key": "enter"}
+← {"status": "ok", "action": {...}, "perception": {...}}
+→ {"command": "scroll", "direction": "down", "amount": 500}
+← {"status": "ok", "action": {...}, "perception": {...}}
+→ {"command": "wait", "seconds": 2}
 ← {"status": "ok", "action": {...}, "perception": {...}}
 ```
 
-**Supported commands:** `look`, `click`, `type`, `press`, `scroll`, `wait`
+Close stdin or kill process to exit. Single-threaded, one request at a time.
 
-Exit by closing stdin or killing the process. Single-threaded, synchronous, one request at a time.
+## `_meta` Field Reference
+
+| Field | Description |
+|-------|-------------|
+| `level` | Perception level: L1 (cache/diff), L2 (incremental), L3 (full pipeline) |
+| `changed` | Whether the screen changed since last observation |
+| `diff_ratio` | Pixel change ratio (0.0 = identical, 1.0 = completely different) |
+| `elapsed_ms` | Total perception time in milliseconds |

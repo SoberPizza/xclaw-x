@@ -40,10 +40,9 @@ xclaw look
 # 2. Click the browser address bar (find it by content/position)
 xclaw click 756 52
 
-# 3. Select all existing text and type new URL
+# 3. Select all existing text and type new URL (Enter is pressed automatically)
 xclaw press cmd+a
 xclaw type "https://github.com"
-xclaw press enter
 
 # 4. Wait for page to load
 xclaw wait 2
@@ -52,7 +51,7 @@ xclaw wait 2
 xclaw click 400 350
 
 # 6. Scroll down to read more
-xclaw scroll down 500
+xclaw scroll down 5
 ```
 
 ### Element Targeting Strategy
@@ -90,7 +89,8 @@ Each `elements[]` entry looks like:
 ### Tips
 
 - **Address bar shortcut**: `xclaw press cmd+l` selects the address bar in any browser — faster than clicking.
-- **Scroll amounts**: Use 500+ for visible scrolling, 1000+ for large jumps. Values under 100 are barely noticeable.
-- **Page load**: After pressing Enter on a URL or submitting a form, always `xclaw wait 2` (or more for slow sites).
+- **Scroll amounts**: Each step scrolls ~3 lines. Use 3 for a small scroll, 5 for moderate, 10+ for large jumps.
+- **Page load**: After typing a URL (Enter is auto-pressed), always `xclaw wait 2` (or more for slow sites).
 - **Disambiguate**: If the screen has duplicate buttons (e.g. multiple "Submit"), use their `col` and `bbox` position to pick the right one.
 - **Chinese input**: `xclaw type` handles CJK characters automatically via clipboard.
+- **Type without Enter**: Use `xclaw type --no-enter "text"` when filling a field before tabbing to the next one.

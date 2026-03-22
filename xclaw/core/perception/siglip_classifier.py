@@ -80,11 +80,16 @@ class SigLIPClassifier:
         image_embeds = self.model.get_image_features(**image_inputs)
         image_embeds = F.normalize(image_embeds, dim=-1)  # (B, D)
 
-        logits = image_embeds @ self._text_embeds.T  # (B, N)
+        raw_logits = image_embeds @ self._text_embeds.T  # (B, N)
+
+        # Apply learned scale + bias, then sigmoid → proper probabilities
+        logit_scale = self.model.logit_scale.exp()
+        logit_bias = self.model.logit_bias
+        probs = torch.sigmoid(raw_logits * logit_scale + logit_bias)  # (B, N)
 
         results = []
-        for i in range(logits.shape[0]):
-            topk = logits[i].topk(2)
+        for i in range(probs.shape[0]):
+            topk = probs[i].topk(2)
             idx = topk.indices[0].item()
             conf = topk.values[0].item()
             gap = (topk.values[0] - topk.values[1]).item()

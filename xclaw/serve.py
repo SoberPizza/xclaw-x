@@ -50,6 +50,15 @@ def _handle_look() -> dict:
     }
 
 
+_ACTION_DELAYS = {
+    "click": 2.0,
+    "type": 2.0,
+    "scroll": 0.5,
+    "press": 0.5,
+    "wait": 0,
+}
+
+
 def _handle_action(cmd: str, request: dict) -> dict:
     # Execute the action
     if cmd == "click":
@@ -59,8 +68,11 @@ def _handle_action(cmd: str, request: dict) -> dict:
             double=request.get("double", False),
         )
     elif cmd == "type":
-        from xclaw.action.keyboard import type_text
+        from xclaw.action.keyboard import type_text, press_key
         action_result = type_text(request["text"])
+        if request.get("enter", True):
+            press_key("enter")
+            action_result["enter"] = True
     elif cmd == "press":
         from xclaw.action.keyboard import press_key
         action_result = press_key(request["key"])
@@ -79,10 +91,15 @@ def _handle_action(cmd: str, request: dict) -> dict:
     else:
         return {"status": "error", "message": f"unknown action: {cmd}"}
 
-    # Run perception after the action
+    # Wait for screen to settle (action-specific delay)
+    delay = _ACTION_DELAYS.get(cmd, 0.5)
+    if delay > 0:
+        time.sleep(delay)
+
+    # Run perception after the action (no action_result → skip scheduler's own delay)
     from xclaw.core.context.scheduler import schedule
 
-    sr = schedule(action_result=action_result)
+    sr = schedule()
     perception = sr.perception
     meta = perception.pop("_perception", {})
     return {

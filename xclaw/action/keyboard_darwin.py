@@ -65,8 +65,7 @@ SHIFT_CHARS = {
 
 def _key_event(keycode: int, down: bool, flags: int = 0):
     ev = Quartz.CGEventCreateKeyboardEvent(None, keycode, down)
-    if flags:
-        Quartz.CGEventSetFlags(ev, flags)
+    Quartz.CGEventSetFlags(ev, flags)  # 始终显式设置，防止继承残留 modifier
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
 
 

@@ -198,12 +198,18 @@ def click_cmd(ctx, x, y, double):
 
 @main.command("type")
 @click.argument("text")
+@click.option("--no-enter", is_flag=True, help="Skip pressing Enter after typing")
 @click.pass_context
-def type_cmd(ctx, text):
-    """Type text at the cursor."""
-    from xclaw.action.keyboard import type_text
+def type_cmd(ctx, text, no_enter):
+    """Type text at the cursor, then press Enter."""
+    from xclaw.action.keyboard import type_text, press_key
 
-    result, sched_timing = _action_with_look(type_text(text))
+    action_result = type_text(text)
+    if not no_enter:
+        press_key("enter")
+        action_result["enter"] = True
+
+    result, sched_timing = _action_with_look(action_result)
     _output(result)
     if ctx.obj.get("show_timing"):
         _print_timing(sched_timing, ctx.obj["cli_start_ns"])

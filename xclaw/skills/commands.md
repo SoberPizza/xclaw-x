@@ -52,9 +52,9 @@ All action commands automatically observe the screen after execution. Response f
 
 Click at screen coordinates. Use `--double` for double-click. Coordinates must come from an element's `center` field.
 
-### `xclaw type <text>`
+### `xclaw type <text> [--no-enter]`
 
-Type text at the current cursor position. CJK characters are automatically handled via clipboard (Cmd+V).
+Type text at the current cursor position, then automatically press Enter. Use `--no-enter` to skip the Enter press (e.g., when filling a form field before tabbing to the next). CJK characters are handled via clipboard.
 
 ### `xclaw press <key>`
 
@@ -85,10 +85,10 @@ Scroll the mouse wheel at optional coordinates (default: screen center).
 
 | Amount | Effect |
 |--------|--------|
-| < 100 | Barely visible |
-| 100-300 | A few lines |
-| **500+** | **Recommended — clearly visible** |
-| 1000+ | Large page jump |
+| 1 | ~3 lines (one notch) |
+| 3 | ~9 lines (small scroll) |
+| **5** | **~15 lines (moderate scroll)** |
+| 10+ | ~30+ lines (big scroll) |
 
 ### `xclaw wait <seconds>`
 
@@ -107,10 +107,10 @@ Long-running stdio JSON-line server. Models loaded once at startup.
 → {"command": "click", "x": 100, "y": 200}
 ← {"status": "ok", "action": {...}, "perception": {...}}
 → {"command": "type", "text": "hello"}
+← {"status": "ok", "action": {"enter": true, ...}, "perception": {...}}
+→ {"command": "type", "text": "hello", "enter": false}
 ← {"status": "ok", "action": {...}, "perception": {...}}
-→ {"command": "press", "key": "enter"}
-← {"status": "ok", "action": {...}, "perception": {...}}
-→ {"command": "scroll", "direction": "down", "amount": 500}
+→ {"command": "scroll", "direction": "down", "amount": 5}
 ← {"status": "ok", "action": {...}, "perception": {...}}
 → {"command": "wait", "seconds": 2}
 ← {"status": "ok", "action": {...}, "perception": {...}}

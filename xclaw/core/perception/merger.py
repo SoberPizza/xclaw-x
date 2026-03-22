@@ -167,7 +167,7 @@ def fuse_results(icon_boxes: list[dict], text_boxes) -> tuple[list[dict], list[d
         }
         merged.append(elem)
 
-        if not has_text_overlap and not has_text_nearby:
+        if not has_text_overlap:
             icons_needing_classify.append(elem)
 
     return merged, icons_needing_classify

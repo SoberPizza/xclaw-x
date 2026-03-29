@@ -1,4 +1,4 @@
-"""Centralized configuration for X-Claw."""
+"""Centralized configuration for X-Claw — Windows CUDA only."""
 
 from pathlib import Path
 import os
@@ -17,13 +17,8 @@ def _resolve_data_dir() -> Path:
     # 开发模式：pyproject.toml 存在 → 就用 PROJECT_ROOT
     if (PROJECT_ROOT / "pyproject.toml").exists():
         return PROJECT_ROOT
-    # 安装模式
-    import platform as _plat
-    if _plat.system() == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "X-Claw"
-    elif _plat.system() == "Windows":
-        return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "X-Claw"
-    return Path.home() / ".xclaw"
+    # 安装模式 (Windows)
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "X-Claw"
 
 
 DATA_DIR = _resolve_data_dir()
@@ -33,15 +28,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 LOGS_DIR = DATA_DIR / "logs"
 WEIGHTS_DIR = PROJECT_ROOT / "weights"
-
-# ── OmniParser ──
-OMNIPARSER_DIR = PROJECT_ROOT / "OmniParser"
-OMNIPARSER_CONFIG = {
-    "som_model_path": str(WEIGHTS_DIR / "icon_detect" / "model.pt"),
-    "caption_model_name": "minicpm_v",
-    "caption_model_path": str(WEIGHTS_DIR / "icon_caption_minicpm"),
-    "BOX_TRESHOLD": 0.05,
-}
 
 # ── 行为人性化 ──
 HUMANIZE = os.environ.get("XCLAW_HUMANIZE", "0") == "1"
@@ -60,23 +46,8 @@ ROW_Y_TOLERANCE = 8
 # ── Pipeline Cache ──
 CACHE_MAX_SIZE = 8
 
-# ── Context: Smart Perception ──
-CONTEXT_STATE_PATH = DATA_DIR / ".context_state.json"
-CONTEXT_CACHE_TTL = 15.0                    # 缓存过期秒数
-CONTEXT_MAX_CONSECUTIVE_CHEAP = 4           # 连续 L0/L1 上限
-CONTEXT_DIFF_THRESHOLD_UNCHANGED = 0.01     # 低于此 = 无变化
-CONTEXT_DIFF_THRESHOLD_MINOR = 0.15         # 低于此 = 小变化 → L2
-CONTEXT_PIXEL_DIFF_THRESHOLD = 30           # peek 灰度差阈值
-CONTEXT_CONTOUR_MIN_AREA = 50               # peek 轮廓最小面积（过滤噪声）
-CONTEXT_CONTOUR_MERGE_DISTANCE = 20         # peek 轮廓合并距离
-CONTEXT_GLANCE_FALLBACK_RATIO = 0.6         # glance 变化面积占比超此值则回退全量管线
-CONTEXT_OVERLAP_DISCARD_THRESHOLD = 0.5     # glance 缓存元素重叠比超此值则丢弃
-CONTEXT_POST_ACTION_DELAY = 0.2              # 操作后截屏前等待秒数（等待视觉反馈）
-
-# ── Daemon: Tiered Idle Unloading ──
-DAEMON_IDLE_UNLOAD_CAPTION_S = 300           # 5min: 卸载 MiniCPM-V（最重、最少用）
-DAEMON_IDLE_UNLOAD_ALL_S = 900               # 15min: 卸载全部模型
-DAEMON_IDLE_EXIT_S = 1800                    # 30min: 退出进程
+# ── TensorRT ──
+YOLO_TRT_ENABLED = os.environ.get("XCLAW_TRT", "1") == "1"
 
 # ── 平台适配 ──
 from xclaw.platform import PLATFORM, PERCEPTION_CONFIG  # noqa: E402

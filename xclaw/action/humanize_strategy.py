@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import platform as _plat
 import random
 import time
 from typing import Callable, Protocol, runtime_checkable
@@ -57,10 +56,7 @@ class NoopStrategy:
 
 
 def _get_cursor_pos() -> tuple[int, int]:
-    if _plat.system() == "Darwin":
-        from xclaw.action.mouse_darwin import _cursor_pos
-    else:
-        from xclaw.action.mouse_win32 import _cursor_pos
+    from xclaw.action.mouse_win32 import _cursor_pos
     return _cursor_pos()
 
 

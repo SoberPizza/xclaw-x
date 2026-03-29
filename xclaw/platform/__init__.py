@@ -1,4 +1,4 @@
-"""Platform detection, GPU configuration, and permissions."""
+"""Platform detection and GPU configuration."""
 
 from xclaw.platform.detect import detect_platform, PlatformInfo
 from xclaw.platform.gpu import build_perception_config, PerceptionConfig

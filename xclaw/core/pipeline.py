@@ -126,13 +126,13 @@ def run_pipeline(
 
     from xclaw.core.perception.merger import fuse_results, merge_elements
 
-    fused, icons_needing_caption = fuse_results(icon_boxes, text_boxes)
+    fused, icons_needing_classification = fuse_results(icon_boxes, text_boxes)
 
-    # Conditional caption for text-less icons
-    if engine.caption_enabled and icons_needing_caption:
-        captions = engine.caption_icons(screenshot, icons_needing_caption)
-        for elem, cap in zip(icons_needing_caption, captions):
-            elem["content"] = cap
+    # Icon classification for text-less icons
+    if engine.classifier_enabled and icons_needing_classification:
+        labels = engine.classify_icons(screenshot, icons_needing_classification)
+        for elem, label in zip(icons_needing_classification, labels):
+            elem["content"] = label
 
     # Convert fused dicts to RawElement
     elements = []

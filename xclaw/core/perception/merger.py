@@ -118,12 +118,12 @@ def fuse_results(icon_boxes: list[dict], text_boxes) -> tuple[list[dict], list[d
     """Fuse YOLO icon detections and OCR text boxes.
 
     Returns:
-        (merged_elements, icons_needing_caption)
+        (merged_elements, icons_needing_classification)
         - merged_elements: all elements with type/bbox/content
-        - icons_needing_caption: icon elements without text overlap
+        - icons_needing_classification: icon elements without text overlap
     """
     merged = []
-    icons_needing_caption = []
+    icons_needing_classification = []
 
     # Convert text_boxes to dicts
     text_dicts = []
@@ -159,6 +159,6 @@ def fuse_results(icon_boxes: list[dict], text_boxes) -> tuple[list[dict], list[d
         merged.append(elem)
 
         if not has_text_overlap:
-            icons_needing_caption.append(elem)
+            icons_needing_classification.append(elem)
 
-    return merged, icons_needing_caption
+    return merged, icons_needing_classification

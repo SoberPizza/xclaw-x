@@ -287,50 +287,7 @@ class TestHumanizeStrategy:
 
 
 # ---------------------------------------------------------------------------
-# Darwin backend (only tested on macOS)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(platform.system() != "Darwin", reason="macOS only")
-class TestDarwinKeyboard:
-    def test_mac_kc_has_common_keys(self):
-        from xclaw.action.keyboard_darwin import MAC_KC
-
-        for key in ["a", "z", "0", "9", "return", "tab", "space", "escape"]:
-            assert key in MAC_KC, f"Missing key: {key}"
-
-    def test_mac_mod_kc_has_modifiers(self):
-        from xclaw.action.keyboard_darwin import MAC_MOD_KC
-
-        for mod in ["cmd", "shift", "alt", "ctrl"]:
-            assert mod in MAC_MOD_KC, f"Missing modifier: {mod}"
-
-    def test_shift_chars_complete(self):
-        from xclaw.action.keyboard_darwin import SHIFT_CHARS
-
-        for char in "!@#$%^&*()_+{}|:\"<>?~":
-            assert char in SHIFT_CHARS, f"Missing shift char: {char}"
-
-
-@pytest.mark.skipif(platform.system() != "Darwin", reason="macOS only")
-class TestDarwinMouse:
-    def test_screen_size_returns_tuple(self):
-        from xclaw.action.mouse_darwin import _screen_size
-
-        w, h = _screen_size()
-        assert isinstance(w, int) and w > 0
-        assert isinstance(h, int) and h > 0
-
-    def test_cursor_pos_returns_tuple(self):
-        from xclaw.action.mouse_darwin import _cursor_pos
-
-        x, y = _cursor_pos()
-        assert isinstance(x, int)
-        assert isinstance(y, int)
-
-
-# ---------------------------------------------------------------------------
-# Windows backend (structure-only, runs on any platform via mock)
+# Windows backend
 # ---------------------------------------------------------------------------
 
 

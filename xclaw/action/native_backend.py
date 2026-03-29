@@ -1,14 +1,12 @@
-"""NativeActionBackend — delegates to platform modules with HumanizeStrategy."""
+"""NativeActionBackend — delegates to Windows win32 modules with HumanizeStrategy."""
 
 from __future__ import annotations
-
-import platform
 
 from xclaw.action.humanize_strategy import HumanizeStrategy, NoopStrategy
 
 
 class NativeActionBackend:
-    """Cross-platform action backend using OS-native mouse/keyboard events."""
+    """Windows action backend using ctypes SendInput mouse/keyboard events."""
 
     def __init__(self, humanize: HumanizeStrategy | None = None):
         self._humanize = humanize or NoopStrategy()
@@ -18,10 +16,7 @@ class NativeActionBackend:
     def _ensure_platform(self):
         if self._mouse is not None:
             return
-        if platform.system() == "Darwin":
-            from xclaw.action import mouse_darwin as _m, keyboard_darwin as _k
-        else:
-            from xclaw.action import mouse_win32 as _m, keyboard_win32 as _k
+        from xclaw.action import mouse_win32 as _m, keyboard_win32 as _k
         self._mouse = _m
         self._keyboard = _k
 

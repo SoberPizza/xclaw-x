@@ -1,15 +1,12 @@
-"""Default perception backend: YOLO + PaddleOCR + MiniCPM-V 2.0."""
+"""Default perception backend: YOLO (TRT/CUDA) + PaddleOCR + ConvNeXt-Tiny classifier."""
 
 from __future__ import annotations
 
 import time
+import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
-import torch
-
-import logging
 
 from xclaw.config import MODELS_DIR, WEIGHTS_DIR
 from xclaw.platform.gpu import PerceptionConfig
@@ -19,14 +16,14 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineBackend:
-    """Default backend — YOLO icon detection + PaddleOCR + MiniCPM-V caption."""
+    """Default backend — YOLO icon detection + PaddleOCR + ConvNeXt-Tiny classifier."""
 
     def __init__(self, config: PerceptionConfig):
         self._config = config
         self._models_loaded = False
         self._detector = None  # OmniDetector
         self._ocr = None       # OCREngine
-        self._caption = None   # MiniCPMCaption
+        self._classifier = None  # IconClassifier
 
     # ── PerceptionBackend protocol ──
 
@@ -44,10 +41,24 @@ class PipelineBackend:
         pt_path = model_dir / "icon_detect" / "model.pt"
 
         if onnx_path.exists():
-            self._detector = OmniDetector.from_onnx(
-                str(onnx_path),
-                provider=self._config.yolo_onnx_ep,
-            )
+            # Try TensorRT EP first, fallback to CUDA EP
+            if self._config.yolo_trt_enabled:
+                try:
+                    self._detector = OmniDetector.from_onnx(
+                        str(onnx_path),
+                        provider="TensorrtExecutionProvider",
+                    )
+                except Exception as e:
+                    logger.info("TensorRT EP unavailable (%s), falling back to %s", e, self._config.yolo_onnx_ep)
+                    self._detector = OmniDetector.from_onnx(
+                        str(onnx_path),
+                        provider=self._config.yolo_onnx_ep,
+                    )
+            else:
+                self._detector = OmniDetector.from_onnx(
+                    str(onnx_path),
+                    provider=self._config.yolo_onnx_ep,
+                )
         elif pt_path.exists():
             self._detector = OmniDetector.from_ultralytics(
                 str(pt_path),
@@ -67,28 +78,17 @@ class PipelineBackend:
             det_limit=self._config.ocr_det_limit,
         )
 
-        # 3. MiniCPM-V (conditional)
-        if self._config.caption_enabled:
-            caption_dir = model_dir / "icon_caption_minicpm"
-            if caption_dir.exists():
-                try:
-                    from xclaw.core.perception.minicpm_caption import MiniCPMCaption
+        # 3. ConvNeXt-Tiny icon classifier (stub)
+        if self._config.classifier_enabled:
+            classifier_dir = model_dir / "icon_classifier"
+            model_file = classifier_dir / "model.pt"
+            from xclaw.core.perception.icon_classifier import IconClassifier
 
-                    dtype = (
-                        torch.float16
-                        if self._config.caption_dtype == "float16"
-                        else torch.float32
-                    )
-                    self._caption = MiniCPMCaption(
-                        model_dir=caption_dir,
-                        device=self._config.caption_device,
-                        dtype=dtype,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "MiniCPM-V caption load failed, continuing without captions: %s", e
-                    )
-                    self._caption = None
+            self._classifier = IconClassifier(
+                model_path=model_file,
+                device=self._config.classifier_device,
+            )
+            self._classifier.load()
 
         self._models_loaded = True
         elapsed = time.time() - t0
@@ -102,44 +102,19 @@ class PipelineBackend:
         self.load_models()
         return self._ocr.detect(image, min_confidence)
 
-    def caption_icons(
+    def classify_icons(
         self, image: np.ndarray, icon_elements: list[dict]
     ) -> list[str]:
         self.load_models()
-        if self._caption is None:
-            return ["" for _ in icon_elements]
-        return self._caption.batch_caption(image, icon_elements)
+        if self._classifier is None:
+            return ["unknown" for _ in icon_elements]
+        return self._classifier.classify(image, icon_elements)
 
     @property
-    def caption_enabled(self) -> bool:
-        return self._config.caption_enabled and self._caption is not None
-
-    @property
-    def caption_conditional(self) -> bool:
-        return self._config.caption_conditional
+    def classifier_enabled(self) -> bool:
+        return self._config.classifier_enabled and self._classifier is not None
 
     # ── internals ──
-
-    def unload_caption(self) -> None:
-        """Release MiniCPM-V model from memory (heaviest, least used)."""
-        if self._caption is not None:
-            del self._caption
-            self._caption = None
-            import gc
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-    def unload_all(self) -> None:
-        """Release all models from memory."""
-        self.unload_caption()
-        self._detector = None
-        self._ocr = None
-        self._models_loaded = False
-        import gc
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
     @staticmethod
     def _find_model_dir() -> Path:

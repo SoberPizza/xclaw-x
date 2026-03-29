@@ -1,7 +1,7 @@
 """Perception engine — platform-adaptive orchestrator.
 
 Delegates to a :class:`PerceptionBackend` (default: ``PipelineBackend``
-which uses YOLO + PaddleOCR + MiniCPM-V 2.0).
+which uses YOLO + PaddleOCR + ConvNeXt-Tiny classifier).
 """
 
 import base64
@@ -41,12 +41,6 @@ class PerceptionEngine:
             from xclaw.core.perception.pipeline_backend import PipelineBackend
             self._backend = PipelineBackend(self.config)
 
-    # ── backward-compat shim ──
-
-    def _ensure_models(self):
-        """Lazy-load all models (delegates to backend)."""
-        self._backend.load_models()
-
     # ── public API (delegates to backend) ──
 
     def detect_icons(self, image: np.ndarray, conf: float = 0.3) -> list[dict]:
@@ -55,16 +49,12 @@ class PerceptionEngine:
     def detect_text(self, image: np.ndarray, min_confidence: float = 0.6) -> list[TextBox]:
         return self._backend.detect_text(image, min_confidence)
 
-    def caption_icons(self, image: np.ndarray, icon_elements: list[dict]) -> list[str]:
-        return self._backend.caption_icons(image, icon_elements)
+    def classify_icons(self, image: np.ndarray, icon_elements: list[dict]) -> list[str]:
+        return self._backend.classify_icons(image, icon_elements)
 
     @property
-    def caption_enabled(self) -> bool:
-        return self._backend.caption_enabled
-
-    @property
-    def caption_conditional(self) -> bool:
-        return self._backend.caption_conditional
+    def classifier_enabled(self) -> bool:
+        return self._backend.classifier_enabled
 
     # ── perception pipeline ──
 
@@ -79,7 +69,7 @@ class PerceptionEngine:
         2. YOLO detect interactive regions
         3. PaddleOCR extract Chinese/English text
         4. Spatial fusion + dedup
-        5. Conditional caption for text-less icons
+        5. Icon classification for text-less icons
         6. Assign global IDs
         """
         import time
@@ -112,22 +102,22 @@ class PerceptionEngine:
         t_ocr = time.time()
 
         # Step 4: Spatial fusion
-        merged, icons_needing_caption = fuse_results(icon_boxes, text_boxes)
+        merged, icons_needing_classification = fuse_results(icon_boxes, text_boxes)
         t_merge = time.time()
 
-        # Step 5: Conditional caption
+        # Step 5: Icon classification
         try:
             if (
-                self._backend.caption_enabled
-                and icons_needing_caption
+                self._backend.classifier_enabled
+                and icons_needing_classification
             ):
-                captions = self._backend.caption_icons(screenshot, icons_needing_caption)
-                for elem, cap in zip(icons_needing_caption, captions):
-                    elem["content"] = cap
+                labels = self._backend.classify_icons(screenshot, icons_needing_classification)
+                for elem, label in zip(icons_needing_classification, labels):
+                    elem["content"] = label
         except Exception as e:
-            logger.warning("Caption failed, continuing without captions: %s", e)
-            degraded.append("caption")
-        t_caption = time.time()
+            logger.warning("Icon classification failed, continuing without labels: %s", e)
+            degraded.append("classifier")
+        t_classify = time.time()
 
         # Step 6: Assign sequential IDs
         for i, elem in enumerate(merged, start=1):
@@ -145,8 +135,8 @@ class PerceptionEngine:
                 "yolo_ms": round((t_yolo - t_capture) * 1000),
                 "ocr_ms": round((t_ocr - t_yolo) * 1000),
                 "merge_ms": round((t_merge - t_ocr) * 1000),
-                "caption_ms": round((t_caption - t_merge) * 1000),
-                "total_ms": round((t_caption - t_start) * 1000),
+                "classify_ms": round((t_classify - t_merge) * 1000),
+                "total_ms": round((t_classify - t_start) * 1000),
             },
         }
 

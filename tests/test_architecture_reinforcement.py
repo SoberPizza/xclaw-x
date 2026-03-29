@@ -1,14 +1,12 @@
-"""Verification tests for architecture reinforcement plan.
+"""Verification tests for architecture reinforcement.
 
 Tests cover:
-- Phase 1A: RWLock concurrent perceive + switch safety
-- Phase 1B: Graceful degradation with degraded field
-- Phase 2A: Bezier T0-relative timing precision
-- Phase 2B: Daemon tiered idle unload
-- Phase 3A: Small element center-distance dedup
-- Phase 3B: Model SHA256 verification with truncated files
-- Phase 3C: Download retry with exponential backoff
-- Phase 4C: freeze_backend() prevents set_backend()
+- Graceful degradation with degraded field
+- Bezier T0-relative timing precision
+- Small element center-distance dedup
+- Model SHA256 verification with truncated files
+- Download retry with exponential backoff
+- freeze_backend() prevents set_backend()
 """
 
 from __future__ import annotations
@@ -22,43 +20,11 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from xclaw.core.backend_registry import BackendRegistry, _RWLock
 from xclaw.core.perception.types import RawElement
 from xclaw.core.perception.merger import merge_elements, _is_small, _center_distance
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-class SlowMockBackend:
-    """Mock backend that sleeps during perceive to test concurrent access."""
-
-    def __init__(self, delay: float = 0.1):
-        self._delay = delay
-        self._loaded = False
-        self.perceive_count = 0
-
-    def load_models(self) -> None:
-        self._loaded = True
-
-    def detect_icons(self, image, conf=0.3):
-        time.sleep(self._delay)
-        self.perceive_count += 1
-        return []
-
-    def detect_text(self, image, min_confidence=0.6):
-        return []
-
-    def caption_icons(self, image, icon_elements):
-        return []
-
-    @property
-    def caption_enabled(self) -> bool:
-        return False
-
-    @property
-    def caption_conditional(self) -> bool:
-        return False
-
 
 def _elem(id, type="text", bbox=(0, 0, 10, 10), content="test"):
     return RawElement(
@@ -69,137 +35,7 @@ def _elem(id, type="text", bbox=(0, 0, 10, 10), content="test"):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Phase 1A: RWLock + BackendRegistry concurrent safety
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestRWLock:
-    def test_multiple_readers(self):
-        """Multiple threads can hold the read lock concurrently."""
-        lock = _RWLock()
-        inside = threading.Event()
-        barrier = threading.Barrier(2)
-
-        def reader():
-            lock.acquire_read()
-            barrier.wait(timeout=2)  # both readers inside
-            inside.set()
-            lock.release_read()
-
-        t1 = threading.Thread(target=reader)
-        t2 = threading.Thread(target=reader)
-        t1.start()
-        t2.start()
-        t1.join(timeout=3)
-        t2.join(timeout=3)
-        assert inside.is_set(), "Both readers should have been inside concurrently"
-
-    def test_writer_excludes_readers(self):
-        """Writer blocks new readers until done."""
-        lock = _RWLock()
-        order = []
-        writer_started = threading.Event()
-        writer_done = threading.Event()
-
-        def writer():
-            lock.acquire_write()
-            writer_started.set()
-            order.append("writer_in")
-            time.sleep(0.1)
-            order.append("writer_out")
-            lock.release_write()
-            writer_done.set()
-
-        def reader():
-            writer_started.wait(timeout=2)
-            time.sleep(0.02)  # ensure writer is holding lock
-            lock.acquire_read()
-            order.append("reader_in")
-            lock.release_read()
-
-        tw = threading.Thread(target=writer)
-        tr = threading.Thread(target=reader)
-        tw.start()
-        tr.start()
-        tw.join(timeout=3)
-        tr.join(timeout=3)
-
-        assert order.index("writer_out") < order.index("reader_in"), \
-            f"Reader entered before writer finished: {order}"
-
-    def test_writer_waits_for_readers(self):
-        """Writer must wait for all active readers to finish."""
-        lock = _RWLock()
-        reader_in = threading.Event()
-        reader_done = threading.Event()
-        order = []
-
-        def reader():
-            lock.acquire_read()
-            reader_in.set()
-            order.append("reader_in")
-            time.sleep(0.15)
-            order.append("reader_out")
-            lock.release_read()
-            reader_done.set()
-
-        def writer():
-            reader_in.wait(timeout=2)
-            time.sleep(0.02)  # ensure reader is holding lock
-            lock.acquire_write()
-            order.append("writer_in")
-            lock.release_write()
-
-        tr = threading.Thread(target=reader)
-        tw = threading.Thread(target=writer)
-        tr.start()
-        tw.start()
-        tr.join(timeout=3)
-        tw.join(timeout=3)
-
-        assert order.index("reader_out") < order.index("writer_in"), \
-            f"Writer entered before reader finished: {order}"
-
-
-class TestBackendRegistryConcurrency:
-    def test_switch_waits_for_in_flight_perceive(self):
-        """switch() should block until with_active() readers complete."""
-        reg = BackendRegistry()
-        slow = SlowMockBackend(delay=0.15)
-        fast = SlowMockBackend(delay=0.01)
-        reg.register("slow", slow)
-        reg.register("fast", fast)
-        reg.switch("slow")
-
-        perceive_backend_name = []
-        switch_completed = threading.Event()
-
-        def perceiver():
-            with reg.with_active() as (backend, entry):
-                perceive_backend_name.append(entry.name)
-                backend.detect_icons(None)  # sleeps 0.15s
-
-        def switcher():
-            time.sleep(0.03)  # let perceiver grab read lock first
-            reg.switch("fast")
-            switch_completed.set()
-
-        tp = threading.Thread(target=perceiver)
-        ts = threading.Thread(target=switcher)
-        tp.start()
-        ts.start()
-        tp.join(timeout=3)
-        ts.join(timeout=3)
-
-        # Perceiver should have seen "slow" (not "fast")
-        assert perceive_backend_name == ["slow"]
-        assert switch_completed.is_set()
-        # After switch, active should be "fast"
-        assert reg.active is fast
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Phase 1B: Perception graceful degradation
+# Perception graceful degradation
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -212,7 +48,7 @@ class TestPerceptionGracefulDegradation:
         mock_backend.load_models.return_value = None
         mock_backend.detect_icons.side_effect = RuntimeError("YOLO crash")
         mock_backend.detect_text.return_value = []
-        mock_backend.caption_enabled = False
+        mock_backend.classifier_enabled = False
 
         engine = PerceptionEngine(backend=mock_backend)
 
@@ -236,7 +72,7 @@ class TestPerceptionGracefulDegradation:
             {"bbox": (10, 10, 50, 50), "confidence": 0.9}
         ]
         mock_backend.detect_text.side_effect = RuntimeError("OCR crash")
-        mock_backend.caption_enabled = False
+        mock_backend.classifier_enabled = False
 
         engine = PerceptionEngine(backend=mock_backend)
 
@@ -251,8 +87,8 @@ class TestPerceptionGracefulDegradation:
         assert "ocr" in result["degraded"]
         assert result["element_count"] >= 1  # YOLO result should survive
 
-    def test_caption_failure_returns_degraded(self):
-        """When caption fails, result should have degraded=["caption"]."""
+    def test_classifier_failure_returns_degraded(self):
+        """When classifier fails, result should have degraded=["classifier"]."""
         from xclaw.core.perception.engine import PerceptionEngine
 
         mock_backend = MagicMock()
@@ -261,8 +97,8 @@ class TestPerceptionGracefulDegradation:
             {"bbox": (10, 10, 50, 50), "confidence": 0.9}
         ]
         mock_backend.detect_text.return_value = []
-        mock_backend.caption_enabled = True
-        mock_backend.caption_icons.side_effect = RuntimeError("Caption crash")
+        mock_backend.classifier_enabled = True
+        mock_backend.classify_icons.side_effect = RuntimeError("Classifier crash")
 
         engine = PerceptionEngine(backend=mock_backend)
 
@@ -274,7 +110,7 @@ class TestPerceptionGracefulDegradation:
 
         assert result["status"] == "ok"
         assert "degraded" in result
-        assert "caption" in result["degraded"]
+        assert "classifier" in result["degraded"]
 
     def test_no_failure_no_degraded_field(self):
         """When all subsystems succeed, no degraded field in result."""
@@ -284,7 +120,7 @@ class TestPerceptionGracefulDegradation:
         mock_backend.load_models.return_value = None
         mock_backend.detect_icons.return_value = []
         mock_backend.detect_text.return_value = []
-        mock_backend.caption_enabled = False
+        mock_backend.classifier_enabled = False
 
         engine = PerceptionEngine(backend=mock_backend)
 
@@ -299,7 +135,7 @@ class TestPerceptionGracefulDegradation:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Phase 2A: Bezier T0-relative timing precision
+# Bezier T0-relative timing precision
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -328,83 +164,7 @@ class TestBezierTimingPrecision:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Phase 2B: Daemon tiered unload
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestDaemonTieredUnload:
-    def test_caption_unload_after_5min_idle(self):
-        """After 5min idle, only caption should be unloaded."""
-        from xclaw.core.daemon_server import DaemonServer
-
-        server = DaemonServer()
-        mock_backend = MagicMock()
-        mock_backend.load_models.return_value = None
-        server.registry.register("pipeline", mock_backend)
-        server.registry.switch("pipeline")
-
-        # Simulate 400s idle
-        server.last_activity = time.time() - 400
-
-        server._unload_caption()
-
-        mock_backend.unload_caption.assert_called_once()
-        mock_backend.unload_all.assert_not_called()
-
-    def test_all_unload_after_15min_idle(self):
-        """After 15min idle, all models should be unloaded."""
-        from xclaw.core.daemon_server import DaemonServer
-
-        server = DaemonServer()
-        mock_backend = MagicMock()
-        mock_backend.load_models.return_value = None
-        server.registry.register("pipeline", mock_backend)
-        server.registry.switch("pipeline")
-
-        server._unload_all_models()
-
-        mock_backend.unload_all.assert_called_once()
-
-
-class TestPipelineBackendUnload:
-    def test_unload_caption_releases_model(self):
-        """unload_caption should set _caption to None."""
-        from xclaw.core.perception.pipeline_backend import PipelineBackend
-
-        config = MagicMock()
-        config.caption_enabled = True
-        backend = PipelineBackend(config)
-        backend._caption = MagicMock()
-        backend._models_loaded = True
-
-        with patch("xclaw.core.perception.pipeline_backend.torch") as mock_torch:
-            mock_torch.cuda.is_available.return_value = False
-            backend.unload_caption()
-
-        assert backend._caption is None
-
-    def test_unload_all_resets_loaded_flag(self):
-        """unload_all should reset _models_loaded to False."""
-        from xclaw.core.perception.pipeline_backend import PipelineBackend
-
-        config = MagicMock()
-        config.caption_enabled = False
-        backend = PipelineBackend(config)
-        backend._models_loaded = True
-        backend._detector = MagicMock()
-        backend._ocr = MagicMock()
-
-        with patch("xclaw.core.perception.pipeline_backend.torch") as mock_torch:
-            mock_torch.cuda.is_available.return_value = False
-            backend.unload_all()
-
-        assert not backend._models_loaded
-        assert backend._detector is None
-        assert backend._ocr is None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Phase 3A: Small element center-distance dedup
+# Small element center-distance dedup
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -424,7 +184,6 @@ class TestSmallElementDedup:
             _elem(0, type="icon", bbox=(100, 100, 200, 200), content="a"),
             _elem(1, type="icon", bbox=(103, 103, 203, 203), content="b"),
         ]
-        # IoU for these is very high (~0.88), so they should merge even with IoU
         result = merge_elements(elems)
         assert len(result) == 1
 
@@ -448,7 +207,7 @@ class TestSmallElementDedup:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Phase 3B: Model SHA256 verification
+# Model SHA256 verification
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -472,7 +231,6 @@ class TestModelVerification:
         result = verify_models(tmp_path)
 
         captured = capsys.readouterr()
-        # Should warn about YOLO being too small
         assert "truncated" in captured.out.lower() or "⚠" in captured.out
         assert result is False
 
@@ -488,7 +246,6 @@ class TestModelVerification:
         caption_dir = tmp_path / "icon_caption_minicpm"
         caption_dir.mkdir()
         config_file = caption_dir / "config.json"
-        # Must be >= 0.001 MB (~1KB) per MODEL_MANIFEST
         config_file.write_text('{"model_type": "minicpm"}' + " " * 1100)
 
         result = verify_models(tmp_path)
@@ -517,7 +274,7 @@ class TestModelVerification:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Phase 3C: Download retry logic
+# Download retry logic
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -588,7 +345,7 @@ class TestDownloadRetry:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Phase 4C: set_backend() thread safety + freeze
+# set_backend() thread safety + freeze
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -635,7 +392,6 @@ class TestSetBackendThreadSafety:
     def test_concurrent_get_backend_safe(self):
         """Multiple threads calling get_backend() concurrently should be safe."""
         import xclaw.action as action_mod
-        from xclaw.action.dry_run_backend import DryRunBackend
 
         original_backend = action_mod._backend
         original_frozen = action_mod._frozen

@@ -13,7 +13,7 @@ import numpy as np
 
 from xclaw.config import PERCEPTION_CONFIG, SCREENSHOTS_DIR, LOGS_DIR, MAX_SCREENSHOTS, MAX_LOGS
 from xclaw.core.perception.backend import PerceptionBackend
-from xclaw.core.perception.merger import fuse_results
+from xclaw.core.perception.merger import fuse_results, merge_element_dicts
 from xclaw.core.perception.types import TextBox
 
 logger = logging.getLogger(__name__)
@@ -62,15 +62,16 @@ class PerceptionEngine:
         self,
         region: Optional[list[int]] = None,
         with_image: bool = False,
+        from_image: Optional[str] = None,
     ) -> dict:
         """Full perception pipeline:
 
-        1. Screenshot
+        1. Screenshot (or load from file)
         2. YOLO detect interactive regions
         3. PaddleOCR extract Chinese/English text
         4. Spatial fusion + dedup
         5. Icon classification for text-less icons
-        6. Assign global IDs
+        6. Dedup + sort + assign global IDs
         """
         import time
 
@@ -79,8 +80,13 @@ class PerceptionEngine:
         t_start = time.time()
         degraded: list[str] = []
 
-        # Step 1: Screenshot
-        screenshot = self._capture(region=region)
+        # Step 1: Screenshot or load from file
+        if from_image:
+            import numpy as np
+            from PIL import Image
+            screenshot = np.array(Image.open(from_image))
+        else:
+            screenshot = self._capture(region=region)
         t_capture = time.time()
 
         # Step 2: Icon detection
@@ -119,7 +125,15 @@ class PerceptionEngine:
             degraded.append("classifier")
         t_classify = time.time()
 
-        # Step 6: Assign sequential IDs
+        # Step 6: Compute center + dedup + sort by reading order
+        for elem in merged:
+            bbox = elem["bbox"]
+            elem["center"] = [(bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2]
+
+        merged = merge_element_dicts(merged)
+        merged.sort(key=lambda e: (e["center"][1], e["center"][0]))
+
+        # Step 7: Assign sequential IDs
         for i, elem in enumerate(merged, start=1):
             elem["id"] = i
 

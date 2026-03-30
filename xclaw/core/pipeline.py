@@ -1,8 +1,7 @@
-"""Vision pipeline: perception + coordinate sorting."""
+"""Vision pipeline: delegates to PerceptionEngine and wraps result."""
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 
 from xclaw.core.perception.types import RawElement
@@ -35,72 +34,48 @@ class PipelineResult:
         }
 
 
+def _dict_to_element(i: int, d: dict) -> RawElement:
+    bbox = d["bbox"]
+    if isinstance(bbox, list):
+        bbox = tuple(bbox)
+    center = d.get("center")
+    if center:
+        center = tuple(center)
+    else:
+        center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+    return RawElement(
+        id=i,
+        type=d.get("type", "unknown"),
+        bbox=bbox,
+        center=center,
+        content=d.get("content", ""),
+        confidence=d.get("confidence", 1.0),
+    )
+
+
 def run_pipeline(image_path: str) -> PipelineResult:
-    """Execute the vision pipeline.
+    """Execute the vision pipeline by delegating to PerceptionEngine.
 
     Args:
         image_path: Path to screenshot image.
 
     Returns:
-        PipelineResult with timing information.
+        PipelineResult wrapping the engine output.
     """
-    timing: dict[str, int] = {}
-
-    t0 = time.perf_counter_ns()
-
     from xclaw.core.perception.engine import PerceptionEngine
 
     engine = PerceptionEngine.get_instance()
+    result = engine.full_look(from_image=image_path)
 
-    import numpy as np
-    from PIL import Image
-
-    img = Image.open(image_path)
-    w, h = img.size
-    screenshot = np.array(img)
-
-    # Run detection + OCR + fusion
-    icon_boxes = engine.detect_icons(screenshot)
-    text_boxes = engine.detect_text(screenshot)
-
-    from xclaw.core.perception.merger import fuse_results, merge_elements
-
-    fused, icons_needing_classification = fuse_results(icon_boxes, text_boxes)
-
-    # Icon classification for text-less icons
-    if engine.classifier_enabled and icons_needing_classification:
-        labels = engine.classify_icons(screenshot, icons_needing_classification)
-        for elem, label in zip(icons_needing_classification, labels):
-            elem["content"] = label
-
-    # Convert fused dicts to RawElement
-    elements = []
-    for i, elem in enumerate(fused):
-        bbox = elem["bbox"]
-        if isinstance(bbox, list):
-            bbox = tuple(bbox)
-        cx = (bbox[0] + bbox[2]) // 2
-        cy = (bbox[1] + bbox[3]) // 2
-        elements.append(RawElement(
-            id=i,
-            type=elem.get("type", "unknown"),
-            bbox=bbox,
-            center=(cx, cy),
-            content=elem.get("content", ""),
-            confidence=elem.get("confidence", 1.0),
-        ))
-
-    # Dedup + sort by y→x (reading order)
-    elements = merge_elements(elements)
-    elements = sorted(elements, key=lambda e: (e.center[1], e.center[0]))
-    for i, e in enumerate(elements):
-        e.id = i
-
-    timing["ms"] = (time.perf_counter_ns() - t0) // 1_000_000
+    elements = [
+        _dict_to_element(i, d)
+        for i, d in enumerate(result["elements"])
+    ]
+    w, h = result["resolution"]
 
     return PipelineResult(
         elements=elements,
         resolution=(w, h),
         image_path=image_path,
-        timing=timing,
+        timing=result.get("timing", {}),
     )

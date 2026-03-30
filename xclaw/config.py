@@ -37,6 +37,7 @@ TYPE_DELAY_RANGE = (0.05, 0.15)
 
 # ── L1: Perception / Merger ──
 MERGER_IOU_THRESHOLD = 0.5
+MERGER_CROSS_TYPE_IOU_THRESHOLD = 0.3               # icon+text 跨类型合并阈值
 MERGER_SMALL_ELEMENT_SIZE = 32               # 双维低于此值的元素视为"小元素"
 MERGER_SMALL_ELEMENT_CENTER_DIST = 15        # 小元素去重：中心点距离阈值（px）
 

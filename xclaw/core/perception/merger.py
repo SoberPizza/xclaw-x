@@ -3,6 +3,7 @@
 import math
 
 from xclaw.config import (
+    MERGER_CROSS_TYPE_IOU_THRESHOLD,
     MERGER_IOU_THRESHOLD,
     MERGER_SMALL_ELEMENT_CENTER_DIST,
     MERGER_SMALL_ELEMENT_SIZE,
@@ -162,3 +163,72 @@ def fuse_results(icon_boxes: list[dict], text_boxes) -> tuple[list[dict], list[d
             icons_needing_classification.append(elem)
 
     return merged, icons_needing_classification
+
+
+def _dict_area(elem: dict) -> int:
+    bbox = elem["bbox"]
+    return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+
+
+def _dict_is_small(bbox, threshold: int = MERGER_SMALL_ELEMENT_SIZE) -> bool:
+    return (bbox[2] - bbox[0]) < threshold and (bbox[3] - bbox[1]) < threshold
+
+
+def _dict_center_distance(a, b) -> float:
+    acx = (a[0] + a[2]) / 2
+    acy = (a[1] + a[3]) / 2
+    bcx = (b[0] + b[2]) / 2
+    bcy = (b[1] + b[3]) / 2
+    return math.hypot(acx - bcx, acy - bcy)
+
+
+def merge_element_dicts(
+    elements: list[dict],
+    iou_threshold: float = MERGER_IOU_THRESHOLD,
+    cross_type_iou_threshold: float = MERGER_CROSS_TYPE_IOU_THRESHOLD,
+) -> list[dict]:
+    """Deduplicate overlapping element dicts.
+
+    - Same type, IoU > iou_threshold → discard smaller
+    - Different type (icon+text), IoU > cross_type_iou_threshold →
+      merge into larger bbox, prefer text content over icon caption
+    """
+    if not elements:
+        return []
+
+    sorted_elems = sorted(elements, key=_dict_area, reverse=True)
+
+    kept: list[dict] = []
+
+    for elem in sorted_elems:
+        merged = False
+        for kept_elem in kept:
+            if _dict_is_small(elem["bbox"]) and _dict_is_small(kept_elem["bbox"]):
+                is_overlap = _dict_center_distance(elem["bbox"], kept_elem["bbox"]) < MERGER_SMALL_ELEMENT_CENTER_DIST
+                threshold_used = None
+            else:
+                iou = box_iou(tuple(elem["bbox"]), tuple(kept_elem["bbox"]))
+                same_type = elem["type"] == kept_elem["type"]
+                threshold = iou_threshold if same_type else cross_type_iou_threshold
+                is_overlap = iou > threshold
+                threshold_used = threshold
+
+            if is_overlap:
+                if elem["type"] == kept_elem["type"]:
+                    # Same type → discard smaller (current elem)
+                    merged = True
+                    break
+                else:
+                    # Different type → merge; prefer text content
+                    text_content = (
+                        elem["content"] if elem["type"] == "text"
+                        else kept_elem.get("content", "")
+                    )
+                    if elem["type"] == "text" and text_content:
+                        kept_elem["content"] = text_content
+                    merged = True
+                    break
+        if not merged:
+            kept.append(elem)
+
+    return kept

@@ -204,14 +204,10 @@ class TestArtifactPersistence:
 
 class TestBezierTimingPrecision:
     def test_total_duration_within_tolerance(self):
-        """Bezier move should complete within ±15% of target duration."""
+        """Bezier move should complete within reasonable time for the distance."""
         from xclaw.action.humanize_strategy import BezierStrategy
 
-        # Fixed duration to make test deterministic
-        strategy = BezierStrategy(
-            duration_range=(0.2, 0.2),  # exact 0.2s
-            bezier_steps=20,
-        )
+        strategy = BezierStrategy()
 
         moves = []
         def move_fn(x, y):
@@ -221,9 +217,10 @@ class TestBezierTimingPrecision:
         strategy._bezier_move(0, 0, 100, 100, move_fn)
         total = time.perf_counter() - t0
 
-        assert len(moves) == 20
-        # Should be within 15% of 0.2s
-        assert 0.17 <= total <= 0.30, f"Duration {total:.3f}s not within tolerance of 0.2s"
+        # Dynamic steps: should have at least 8 (minimum)
+        assert len(moves) >= 8
+        # Fitts' Law: 141px distance → ~0.2–0.5s typical, clamp allows 0.06–1.5
+        assert 0.05 <= total <= 2.0, f"Duration {total:.3f}s out of plausible range"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -16,7 +16,7 @@ You are a visual agent that perceives and manipulates the screen through the `xc
 |---------|-------------|
 | `xclaw look` | Observe screen (screenshot + perception) |
 | `xclaw click <x> <y>` | Click at coordinates (`--double`, `--button right\|middle`) |
-| `xclaw type <text>` | Type text at cursor |
+| `xclaw type <text>` | Type text at cursor (use stdin for emoji/special chars) |
 | `xclaw press <key>` | Press a single key (enter, tab, escape, ...) |
 | `xclaw hotkey <combo>` | Key combination (ctrl+c, alt+f4, ctrl+shift+t) |
 | `xclaw scroll <dir> <amount>` | Scroll up/down/left/right (`--x`, `--y`) |
@@ -47,7 +47,7 @@ xclaw look                          # 1. Initial observation
 # → layout, elements, timing, _meta
 xclaw click 640 30                  # 2. Click search box
 # → {action, perception, _meta}
-xclaw type "hello world"            # 3. Type text
+echo "hello world" | xclaw type     # 3. Type text (stdin for Unicode safety)
 # → {action, perception, _meta}
 xclaw press enter                   # 4. Press enter (critical key → auto L2)
 # → {action, perception: {layout: {...}, elements: [...]}, _meta: {level: "L2"}}

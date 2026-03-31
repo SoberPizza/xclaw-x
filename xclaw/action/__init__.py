@@ -20,7 +20,8 @@ _frozen = False
 def _create_default_backend() -> ActionBackend:
     """Create the default NativeActionBackend with humanize config."""
     from xclaw.config import (
-        HUMANIZE, BEZIER_DURATION_RANGE, BEZIER_STEPS, TYPE_DELAY_RANGE,
+        HUMANIZE, BEZIER_DURATION_RANGE, TYPE_DELAY_RANGE,
+        MOUSE_POLLING_RATE_RANGE, OVERSHOOT_PROBABILITY, OVERSHOOT_MIN_DISTANCE,
     )
     from xclaw.action.native_backend import NativeActionBackend
 
@@ -28,8 +29,10 @@ def _create_default_backend() -> ActionBackend:
         from xclaw.action.humanize_strategy import BezierStrategy
         strategy = BezierStrategy(
             duration_range=BEZIER_DURATION_RANGE,
-            bezier_steps=BEZIER_STEPS,
             type_delay_range=TYPE_DELAY_RANGE,
+            polling_rate_range=MOUSE_POLLING_RATE_RANGE,
+            overshoot_probability=OVERSHOOT_PROBABILITY,
+            overshoot_min_distance=OVERSHOOT_MIN_DISTANCE,
         )
     else:
         from xclaw.action.humanize_strategy import NoopStrategy

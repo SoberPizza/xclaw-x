@@ -52,11 +52,29 @@ xclaw click 500 300 --button middle    # middle click (open in new tab)
 
 ### `xclaw type <text>`
 
-Type text at the cursor position. Supports Chinese characters (automatically uses clipboard).
+Type text at the cursor position. ASCII characters are typed via physical key simulation; non-ASCII characters (Chinese, emoji, kaomoji) are pasted via clipboard.
+
+**Input methods:**
+
+- **stdin (recommended for programmatic use):** Pipe UTF-8 text via stdin. This avoids Windows GBK codepage encoding issues with emoji and special characters.
+- **Argument:** Pass text as a CLI argument. Only works reliably for ASCII and GBK-encodable characters.
 
 ```bash
+# Recommended: stdin (handles all Unicode including emoji)
+echo "hello world" | xclaw type
+echo "你好世界📚" | xclaw type
+
+# Alternative: argument (ASCII and common CJK only, no emoji)
 xclaw type "hello world"
 xclaw type "你好世界"
+```
+
+**For programmatic callers (Python):**
+
+```python
+import subprocess
+# Always use stdin for reliable Unicode support
+subprocess.run(["xclaw", "type"], input="你好😀".encode("utf-8"))
 ```
 
 ### `xclaw press <key>`

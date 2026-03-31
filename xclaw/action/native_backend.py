@@ -38,7 +38,7 @@ class NativeActionBackend:
 
     def move_to(self, x: int, y: int) -> None:
         self._ensure_platform()
-        self._mouse.move_to(x, y)
+        self._humanize.move_to_target(x, y, self._mouse.move_to)
 
     def drag(self, x1: int, y1: int, x2: int, y2: int, button: str = "left") -> dict:
         self._ensure_platform()
@@ -86,30 +86,46 @@ class NativeActionBackend:
     def type_text(self, text: str) -> dict:
         self._ensure_platform()
         segments = self._keyboard._split_text(text)
+        has_non_ascii = any(k == "non_ascii" for k, _ in segments)
 
-        # Check IME state once before typing
-        has_ascii = any(k == "ascii" for k, _ in segments)
-        ime_toggled = False
-        if has_ascii and self._keyboard._is_ime_chinese_mode():
-            self._keyboard._toggle_ime_to_english()
-            ime_toggled = True
+        if has_non_ascii:
+            # Mixed text: KEYEVENTF_UNICODE for all chars (bypasses IME entirely).
+            # VK physical keys are unreliable here because IME Shift toggle
+            # is fragile when interleaved with Unicode input.
+            for kind, segment in segments:
+                if kind == "control":
+                    for char in segment:
+                        self._humanize.type_char_delay()
+                        self._keyboard._press_release_vk(
+                            self._keyboard.WIN_VK["return"] if char == "\n"
+                            else self._keyboard.WIN_VK["tab"]
+                        )
+                else:
+                    for char in segment:
+                        self._humanize.type_char_delay()
+                        self._keyboard._type_unicode_char(char)
+        else:
+            # Pure ASCII: VK physical keys (most human-like, no IME complication)
+            ime_toggled = False
+            if self._keyboard._is_ime_chinese_mode():
+                self._keyboard._toggle_ime_to_english()
+                ime_toggled = True
 
-        for kind, segment in segments:
-            if kind == "ascii":
-                for char in segment:
-                    self._humanize.type_char_delay()
-                    self._keyboard.type_char_vk(char)
-            elif kind == "non_ascii":
-                self._humanize.type_char_delay()
-                self._keyboard.clipboard_paste(segment)
-            elif kind == "control":
-                for char in segment:
-                    self._humanize.type_char_delay()
-                    self._keyboard.type_text(char)
+            for kind, segment in segments:
+                if kind == "control":
+                    for char in segment:
+                        self._humanize.type_char_delay()
+                        self._keyboard._press_release_vk(
+                            self._keyboard.WIN_VK["return"] if char == "\n"
+                            else self._keyboard.WIN_VK["tab"]
+                        )
+                elif kind == "ascii":
+                    for char in segment:
+                        self._humanize.type_char_delay()
+                        self._keyboard.type_char_vk(char)
 
-        # Restore IME to Chinese mode if we toggled it
-        if ime_toggled:
-            self._keyboard._toggle_ime_to_english()
+            if ime_toggled:
+                self._keyboard._toggle_ime_to_english()
 
         return {"status": "ok", "action": "type", "text": text}
 
@@ -121,6 +137,7 @@ class NativeActionBackend:
 
     def hotkey(self, combo: str) -> None:
         self._ensure_platform()
+        self._humanize.pre_key_delay()
         self._keyboard.hotkey(combo)
 
     def screen_size(self) -> tuple[int, int]:

@@ -48,7 +48,9 @@ def type_cmd(text):
     from xclaw.action.keyboard import type_text
 
     if not sys.stdin.isatty():
-        text = sys.stdin.buffer.read().decode("utf-8")
+        stdin_text = sys.stdin.buffer.read().decode("utf-8").rstrip("\r\n")
+        if stdin_text:
+            text = stdin_text
     if not text:
         raise click.UsageError("No text provided. Pass TEXT argument or pipe via stdin.")
     result = type_text(text)

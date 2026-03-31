@@ -18,6 +18,37 @@ user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 imm32 = ctypes.windll.imm32
 
+# ── ctypes function signatures (64-bit safe) ──
+# Without explicit restype, ctypes defaults to c_int (32-bit) which
+# truncates 64-bit pointers/handles on x64 Windows — causing clipboard
+# corruption and IME detection failure.
+kernel32.GlobalAlloc.restype = ctypes.c_void_p
+kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+kernel32.GlobalLock.restype = ctypes.c_void_p
+kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+
+user32.GetClipboardData.restype = ctypes.c_void_p
+user32.GetClipboardData.argtypes = [ctypes.c_uint]
+user32.SetClipboardData.restype = ctypes.c_void_p
+user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+user32.GetForegroundWindow.restype = ctypes.c_void_p
+
+imm32.ImmGetContext.restype = ctypes.c_void_p
+imm32.ImmGetContext.argtypes = [ctypes.c_void_p]
+imm32.ImmGetConversionStatus.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.DWORD), ctypes.POINTER(ctypes.wintypes.DWORD)]
+imm32.ImmReleaseContext.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+user32.VkKeyScanW.restype = ctypes.c_short
+user32.VkKeyScanW.argtypes = [ctypes.c_wchar]
+
+# MapVirtualKeyW — translate VK to hardware scan code
+MAPVK_VK_TO_VSC = 0
+user32.MapVirtualKeyW.restype = ctypes.c_uint
+user32.MapVirtualKeyW.argtypes = [ctypes.c_uint, ctypes.c_uint]
+
 # SendInput constants
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
@@ -98,6 +129,10 @@ class INPUT(ctypes.Structure):
 
 
 def _send_key(vk: int = 0, scan: int = 0, flags: int = 0):
+    # Auto-fill hardware scan code for VK events so that Chrome's
+    # KeyboardEvent.code is non-empty (empty code = bot fingerprint).
+    if vk and not scan and not (flags & KEYEVENTF_UNICODE):
+        scan = user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
     inp = INPUT()
     inp.type = INPUT_KEYBOARD
     inp.ki.wVk = vk
@@ -146,7 +181,10 @@ def _type_unicode_char(char: str):
 def _get_foreground_ime_context():
     """Get IME context for the foreground window."""
     hwnd = user32.GetForegroundWindow()
-    return hwnd, imm32.ImmGetContext(hwnd)
+    if not hwnd:
+        return None, None
+    himc = imm32.ImmGetContext(hwnd)
+    return hwnd, himc
 
 
 def _is_ime_chinese_mode() -> bool:
@@ -169,6 +207,7 @@ def _is_ime_chinese_mode() -> bool:
 def _toggle_ime_to_english():
     """Send Shift to toggle IME from Chinese to English mode."""
     _send_key(vk=VK_SHIFT)
+    time.sleep(random.uniform(0.03, 0.08))
     _send_key(vk=VK_SHIFT, flags=KEYEVENTF_KEYUP)
     time.sleep(random.uniform(0.05, 0.10))
 
@@ -318,7 +357,8 @@ def type_text(text: str):
             for char in segment:
                 type_char_vk(char)
         elif kind == "non_ascii":
-            clipboard_paste(segment)
+            for char in segment:
+                _type_unicode_char(char)
 
     if ime_toggled:
         _toggle_ime_to_english()  # Shift toggles back

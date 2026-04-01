@@ -42,6 +42,22 @@ imm32.ImmGetContext.argtypes = [ctypes.c_void_p]
 imm32.ImmGetConversionStatus.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.DWORD), ctypes.POINTER(ctypes.wintypes.DWORD)]
 imm32.ImmReleaseContext.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
+# ImmGetDefaultIMEWnd — get the default IME window for WM_IME_CONTROL
+imm32.ImmGetDefaultIMEWnd.restype = ctypes.c_void_p
+imm32.ImmGetDefaultIMEWnd.argtypes = [ctypes.c_void_p]
+
+# ImmSetConversionStatus — set IME conversion mode (official API)
+imm32.ImmSetConversionStatus.restype = ctypes.c_int
+imm32.ImmSetConversionStatus.argtypes = [
+    ctypes.c_void_p, ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
+]
+
+# SendMessageW — for WM_IME_CONTROL messages
+user32.SendMessageW.restype = ctypes.wintypes.LPARAM
+user32.SendMessageW.argtypes = [
+    ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p,
+]
+
 # ImmSetCompositionStringW — inject composition text into the IME pipeline
 SCS_SETSTR = 0x9
 imm32.ImmSetCompositionStringW.restype = ctypes.c_int
@@ -79,8 +95,18 @@ KEYEVENTF_UNICODE = 0x0004
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 
-# IME conversion mode flag
+# IME conversion mode flags
 IME_CMODE_ALPHANUMERIC = 0x0000
+IME_CMODE_NATIVE = 0x0001
+
+# WM_IME_CONTROL message and sub-commands
+WM_IME_CONTROL = 0x0283
+IMC_GETCONVERSIONMODE = 0x0001
+IMC_SETCONVERSIONMODE = 0x0002
+
+# IME toggle timing
+_IME_SETTLE_DELAY = (0.10, 0.20)  # seconds for TSF pipeline propagation
+_MAX_IME_TOGGLE_ATTEMPTS = 3
 
 # Windows Virtual Key codes
 WIN_VK = {
@@ -210,8 +236,27 @@ def _get_foreground_ime_context():
 
 
 def _is_ime_chinese_mode() -> bool:
-    """Check if the current IME is in Chinese (non-alphanumeric) input mode."""
-    hwnd, himc = _get_foreground_ime_context()
+    """Check if the current IME is in Chinese (non-alphanumeric) input mode.
+
+    Uses two detection methods for reliability on both IMM32 and TSF IMEs:
+    1. WM_IME_CONTROL via SendMessageW (works on TSF/Microsoft Pinyin)
+    2. ImmGetConversionStatus fallback (works on IMM32/legacy IMEs)
+    """
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+
+    # Method 1: WM_IME_CONTROL via IME default window (TSF-reliable)
+    ime_wnd = imm32.ImmGetDefaultIMEWnd(hwnd)
+    if ime_wnd:
+        mode = user32.SendMessageW(
+            ime_wnd, WM_IME_CONTROL,
+            ctypes.c_void_p(IMC_GETCONVERSIONMODE), ctypes.c_void_p(0),
+        )
+        return (mode & IME_CMODE_NATIVE) != 0
+
+    # Method 2: ImmGetConversionStatus fallback (legacy IMEs)
+    himc = imm32.ImmGetContext(hwnd)
     if not himc:
         return False
     conversion = ctypes.wintypes.DWORD()
@@ -222,16 +267,119 @@ def _is_ime_chinese_mode() -> bool:
     imm32.ImmReleaseContext(hwnd, himc)
     if not result:
         return False
-    # If not alphanumeric mode, it's in Chinese/Japanese/Korean input mode
-    return (conversion.value & 0x01) != IME_CMODE_ALPHANUMERIC
+    return (conversion.value & IME_CMODE_NATIVE) != 0
 
 
-def _toggle_ime_to_english():
-    """Send Shift to toggle IME from Chinese to English mode."""
+def _ensure_ime_english() -> bool:
+    """Ensure IME is in English/alphanumeric mode. Returns True if successful.
+
+    Tries three methods with verification, falling back on failure:
+    1. WM_IME_CONTROL + IMC_SETCONVERSIONMODE (TSF-reliable)
+    2. ImmSetConversionStatus (official API, may not work on TSF)
+    3. VK_SHIFT toggle (legacy, unreliable)
+
+    Idempotent: safe to call before every ASCII segment.
+    """
+    if not _is_ime_chinese_mode():
+        return True
+
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+
+    # Method 1: WM_IME_CONTROL + IMC_SETCONVERSIONMODE
+    ime_wnd = imm32.ImmGetDefaultIMEWnd(hwnd)
+    if ime_wnd:
+        current_mode = user32.SendMessageW(
+            ime_wnd, WM_IME_CONTROL,
+            ctypes.c_void_p(IMC_GETCONVERSIONMODE), ctypes.c_void_p(0),
+        )
+        new_mode = current_mode & ~IME_CMODE_NATIVE
+        user32.SendMessageW(
+            ime_wnd, WM_IME_CONTROL,
+            ctypes.c_void_p(IMC_SETCONVERSIONMODE), ctypes.c_void_p(new_mode),
+        )
+        time.sleep(random.uniform(*_IME_SETTLE_DELAY))
+        if not _is_ime_chinese_mode():
+            return True
+
+    # Method 2: ImmSetConversionStatus
+    himc = imm32.ImmGetContext(hwnd)
+    if himc:
+        conversion = ctypes.wintypes.DWORD()
+        sentence = ctypes.wintypes.DWORD()
+        if imm32.ImmGetConversionStatus(
+            himc, ctypes.byref(conversion), ctypes.byref(sentence),
+        ):
+            new_conv = conversion.value & ~IME_CMODE_NATIVE
+            imm32.ImmSetConversionStatus(himc, new_conv, sentence.value)
+            time.sleep(random.uniform(*_IME_SETTLE_DELAY))
+        imm32.ImmReleaseContext(hwnd, himc)
+        if not _is_ime_chinese_mode():
+            return True
+
+    # Method 3: VK_SHIFT toggle (legacy, unreliable)
+    for _ in range(_MAX_IME_TOGGLE_ATTEMPTS):
+        _send_key(vk=VK_SHIFT)
+        time.sleep(random.uniform(0.03, 0.08))
+        _send_key(vk=VK_SHIFT, flags=KEYEVENTF_KEYUP)
+        time.sleep(random.uniform(*_IME_SETTLE_DELAY))
+        if not _is_ime_chinese_mode():
+            return True
+
+    logger.warning("Failed to switch IME to English mode after all methods")
+    return False
+
+
+def _restore_ime_chinese() -> bool:
+    """Restore IME to Chinese/native mode. Returns True if successful.
+
+    Mirror of _ensure_ime_english() but sets the native flag.
+    """
+    if _is_ime_chinese_mode():
+        return True
+
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+
+    # Method 1: WM_IME_CONTROL
+    ime_wnd = imm32.ImmGetDefaultIMEWnd(hwnd)
+    if ime_wnd:
+        current_mode = user32.SendMessageW(
+            ime_wnd, WM_IME_CONTROL,
+            ctypes.c_void_p(IMC_GETCONVERSIONMODE), ctypes.c_void_p(0),
+        )
+        new_mode = current_mode | IME_CMODE_NATIVE
+        user32.SendMessageW(
+            ime_wnd, WM_IME_CONTROL,
+            ctypes.c_void_p(IMC_SETCONVERSIONMODE), ctypes.c_void_p(new_mode),
+        )
+        time.sleep(random.uniform(*_IME_SETTLE_DELAY))
+        if _is_ime_chinese_mode():
+            return True
+
+    # Method 2: ImmSetConversionStatus
+    himc = imm32.ImmGetContext(hwnd)
+    if himc:
+        conversion = ctypes.wintypes.DWORD()
+        sentence = ctypes.wintypes.DWORD()
+        if imm32.ImmGetConversionStatus(
+            himc, ctypes.byref(conversion), ctypes.byref(sentence),
+        ):
+            new_conv = conversion.value | IME_CMODE_NATIVE
+            imm32.ImmSetConversionStatus(himc, new_conv, sentence.value)
+            time.sleep(random.uniform(*_IME_SETTLE_DELAY))
+        imm32.ImmReleaseContext(hwnd, himc)
+        if _is_ime_chinese_mode():
+            return True
+
+    # Method 3: VK_SHIFT toggle
     _send_key(vk=VK_SHIFT)
     time.sleep(random.uniform(0.03, 0.08))
     _send_key(vk=VK_SHIFT, flags=KEYEVENTF_KEYUP)
-    time.sleep(random.uniform(0.05, 0.10))
+    time.sleep(random.uniform(*_IME_SETTLE_DELAY))
+    return _is_ime_chinese_mode()
 
 
 # ── Path D: IMM32 composition injection (CJK text) ──
@@ -397,26 +545,17 @@ def clipboard_paste(text: str):
 
 
 def type_text(text: str):
-    r"""Type text using segmented input strategy.
+    r"""Type text using segmented input strategy (standalone, no humanize).
 
-    - ``\n`` → Enter VK
-    - ``\t`` → Tab VK
-    - ASCII printable → Path A (VK physical key, with IME toggle if needed)
-    - Non-ASCII → Path B (clipboard paste)
+    - ``\n`` → Enter VK, ``\t`` → Tab VK, ``\r`` → skipped
+    - ASCII printable → VK physical key (with per-segment IME toggle)
+    - Non-ASCII → per-character IME composition or KEYEVENTF_UNICODE fallback
 
-    Note: When called via NativeActionBackend, IME management is handled
-    at the backend level.  This standalone function includes its own IME
-    toggle for direct usage.
+    Note: When called via NativeActionBackend, the backend adds humanize
+    delays.  This standalone function includes its own IME management.
     """
     ime_was_chinese = _is_ime_chinese_mode()
-    ime_toggled = False
-
     segments = _split_text(text)
-    has_ascii = any(k == "ascii" for k, _ in segments)
-
-    if has_ascii and ime_was_chinese:
-        _toggle_ime_to_english()
-        ime_toggled = True
 
     for kind, segment in segments:
         if kind == "control":
@@ -427,14 +566,23 @@ def type_text(text: str):
                     _press_release_vk(WIN_VK["tab"])
                 # \r is silently skipped (CR in CRLF; \n handles Enter)
         elif kind == "ascii":
-            for char in segment:
-                type_char_vk(char)
+            ime_ok = _ensure_ime_english()
+            if ime_ok:
+                for char in segment:
+                    type_char_vk(char)
+            else:
+                for char in segment:
+                    _type_unicode_char(char)
         elif kind == "non_ascii":
             for char in segment:
-                _type_unicode_char(char)
+                if not ime_compose(char):
+                    _type_unicode_char(char)
 
-    if ime_toggled:
-        _toggle_ime_to_english()  # Shift toggles back
+    # Restore original IME state
+    if ime_was_chinese:
+        _restore_ime_chinese()
+    elif _is_ime_chinese_mode():
+        _ensure_ime_english()
 
 
 def _split_text(text: str) -> list[tuple[str, str]]:

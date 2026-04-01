@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from xclaw.action.humanize_strategy import HumanizeStrategy, NoopStrategy
+
+logger = logging.getLogger(__name__)
 
 
 class NativeActionBackend:
@@ -86,14 +90,9 @@ class NativeActionBackend:
     def type_text(self, text: str) -> dict:
         self._ensure_platform()
         segments = self._keyboard._split_text(text)
-        has_non_ascii = any(k == "non_ascii" for k, _ in segments)
-        has_ascii = any(k == "ascii" for k, _ in segments)
 
-        # Toggle IME to English mode if ASCII segments need VK input
-        ime_toggled = False
-        if has_ascii and self._keyboard._is_ime_chinese_mode():
-            self._keyboard._toggle_ime_to_english()
-            ime_toggled = True
+        # Record initial IME state for restoration at the end
+        ime_was_chinese = self._keyboard._is_ime_chinese_mode()
 
         for kind, segment in segments:
             if kind == "control":
@@ -106,18 +105,34 @@ class NativeActionBackend:
                         else self._keyboard.WIN_VK["tab"]
                     )
             elif kind == "ascii":
+                # Ensure IME is in English mode before EACH ascii segment
+                ime_ok = self._keyboard._ensure_ime_english()
+                if ime_ok:
+                    # VK physical keys (preferred, most human-like)
+                    for char in segment:
+                        self._humanize.type_char_delay()
+                        self._keyboard.type_char_vk(char)
+                else:
+                    # Fallback: KEYEVENTF_UNICODE bypasses IME entirely
+                    logger.warning(
+                        "IME toggle failed, falling back to KEYEVENTF_UNICODE "
+                        "for ASCII segment: %r", segment,
+                    )
+                    for char in segment:
+                        self._humanize.type_char_delay()
+                        self._keyboard._type_unicode_char(char)
+            else:
+                # non_ascii: per-character IME composition with humanized delay
                 for char in segment:
                     self._humanize.type_char_delay()
-                    self._keyboard.type_char_vk(char)
-            else:
-                # non_ascii: whole segment via IME composition,
-                # falling back to clipboard paste if IME unavailable
-                self._humanize.type_char_delay()
-                if not self._keyboard.ime_compose(segment):
-                    self._keyboard.clipboard_paste(segment)
+                    if not self._keyboard.ime_compose(char):
+                        self._keyboard.clipboard_paste(char)
 
-        if ime_toggled:
-            self._keyboard._toggle_ime_to_english()
+        # Restore original IME state
+        if ime_was_chinese:
+            self._keyboard._restore_ime_chinese()
+        elif self._keyboard._is_ime_chinese_mode():
+            self._keyboard._ensure_ime_english()
 
         return {"status": "ok", "action": "type", "text": text}
 
